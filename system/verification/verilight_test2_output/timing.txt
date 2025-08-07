@@ -1,0 +1,6 @@
+Heatmap extraction: /Users/hadleigh/verilight_test2.MOV,19.85728931427002,400 frames
+Corner detection: 3.273758888244629
+Corner detection: 5.123063087463379
+Homography: 0.6999781131744385,w/ display: True
+Load video: 17.183228015899658
+Window prediction: 45.89461612701416,57.535 second video

@@ -93,14 +93,7 @@ class ClientThread(threading.Thread):
                     else:
                         repeat = config.repeat
                         if config.localization_frequency is not None:
-                            if config.mod_type == "fsk":
-                                fsk_frequencies = list(config.symbol_mapping.values())
-                                lc = 1
-                                for i in fsk_frequencies:
-                                    lc = lc*i//math.gcd(lc, i)
-                                frequency = lc
-                            else:
-                                frequency = lcm(config.localization_frequency, config.frequency)
+                            frequency = lcm(config.localization_frequency, config.frequency)
                         else:
                             frequency = config.frequency
                     

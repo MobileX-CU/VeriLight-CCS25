@@ -144,9 +144,9 @@ def create_digest_from_features(dynamic_features, identity_features, feature_seq
             pickle.dump(dynamic_feat_hash, pklfile)
             pickle.dump(id_feat_hash, pklfile)
     
-    #package the stuff 
+    # package the stuff 
     bin_seq_num = np.binary_repr(feature_seq_num, width = config.bin_seq_num_size)
-    if feature_seq_num % 2 == 0: #use the correct half of the ID hash based on the sequence number. digest_process will ensure that the identity feature repeats every two times
+    if feature_seq_num % 2 == 0: # use the correct half of the ID hash based on the sequence number. digest_process will ensure that the identity feature repeats every two times
         id_feat_hash_half = id_feat_hash[:config.identity_hash_k//2]
     else:
         id_feat_hash_half = id_feat_hash[config.identity_hash_k//2:]

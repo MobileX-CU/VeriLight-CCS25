@@ -50,7 +50,7 @@ def frame_save(cv, frame_queue):
         if config.downsample_frames != 0:
             frame = cv2.resize(frame, (int(frame.shape[1] * config.downsample_frames), int(frame.shape[0] * config.downsample_frames)), interpolation=cv2.INTER_AREA)
     
-        np.save("{}/{}.npy".format( f"{config.trial_materials_path}/imgs", i - 1), frame)
+        np.save("{}/{}.npy".format( f"{config.session_output_path}/imgs", i - 1), frame)
         num_saved += 1
         if i == 1:
             start = time.time()
@@ -95,7 +95,7 @@ def get_imgseq(start_image_timestamp_i, end_image_timestamp_i):
     adaptive_log(f"Start and end image timestamps of sequence: {start_image_timestamp_i} {end_image_timestamp_i}", "DEBUG")
     img_seq = []
     for i in range(start_image_timestamp_i, end_image_timestamp_i + 1): #+3 for good measure
-        img = cv2.imread(f"{config.trial_materials_path}/imgs/hom_{i}.png")
+        img = cv2.imread(f"{config.session_output_path}/imgs/hom_{i}.png")
         if config.analysis_colorspace == "ycrcb":
             img = cv2.cvtColor(img, cv2.COLOR_BGR2YCR_CB)
         img_seq.append(img)
@@ -123,9 +123,9 @@ try:
     create_slm_config()
     ssh = SSHClient() 
     ssh.load_system_host_keys()
-    ssh.connect(config.host_ip, username="verilight")
+    ssh.connect(config.host_ip, username=config.host_username)
     with SCPClient(ssh.get_transport()) as scp:
-        scp.put(f"{config.trial_materials_path}/config_slm.py", "config.py")
+        scp.put(f"{config.session_output_path}/config_slm.py", "config.py")
     ssh.close()
 
     #######################
@@ -135,7 +135,7 @@ try:
     kill_lock= threading.Lock()
     kill_cv = threading.Condition(kill_lock)
     camera_name = "Arducam" 
-    if "Arducam" in camera_name or "UC70" in camera_name:
+    if "Arducam" in camera_name:
         confirm_cam_settings(camera_name)
 
     adaptive_log("Starting camera capture thread", "INFO")
@@ -171,7 +171,7 @@ try:
     ########################
 
     #create and project initial calibration code (just bright corners)
-    calibration_dir = f"{config.trial_materials_path}/bmps/seq0"
+    calibration_dir = f"{config.session_output_path}/bmps/seq0"
     create_calibration_code(config.N, (0, 255, 255), calibration_dir)
     client_thread.req_queue.put((calibration_dir, True))
 
@@ -187,16 +187,16 @@ try:
 
     fps, start_image_timestamp_i, end_image_timestamp_i = get_imgseq_info(last_seq_start_time, last_seq_end_time)
 
-    save_img_seq(start_image_timestamp_i, end_image_timestamp_i, f"{config.trial_materials_path}/pos_calibration", fps)
+    save_img_seq(start_image_timestamp_i, end_image_timestamp_i, f"{config.session_output_path}/pos_calibration", fps)
 
     #get calibration code heatmap
-    heatmap_chan1, heatmap_chan2, heatmap_chan3 = create_calibration_heatmap(f"{config.trial_materials_path}/imgs", start_image_timestamp_i, end_image_timestamp_i, fps, 
+    heatmap_chan1, heatmap_chan2, heatmap_chan3 = create_calibration_heatmap(f"{config.session_output_path}/imgs", start_image_timestamp_i, end_image_timestamp_i, fps, 
                                config.calibration_frequency, config.calibration_lower_range_start, config.calibration_lower_range_end,
                                config.calibration_upper_range_start, config.calibration_upper_range_end, 
                                config.calibration_target_lower_epsilon, config.calibration_target_upper_epsilon, 
                                config.target_channel, config.colorspace, 
                                denoise = True, display = False,
-                                output_folder = config.trial_materials_path, output_name = "pos_calibration")
+                                output_folder = config.session_output_path, output_name = "pos_calibration")
     
     if config.target_channel == 0:
         heatmap = heatmap_chan1

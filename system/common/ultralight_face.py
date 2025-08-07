@@ -2,12 +2,12 @@
 Ultralight face detector. 
 Note the UltralightFace GitHub must be cloned into this directory as well
 """
-import argparse
 import sys
 import cv2
 import numpy as np
+import config
 import os 
-sys.path.insert(0, f"{os.path.expanduser('~')}/deepfake_detection/system/e2e/common/Ultra-Light-Fast-Generic-Face-Detector-1MB")
+sys.path.insert(0, f"{config.common_abs_path}/Ultra-Light-Fast-Generic-Face-Detector-1MB")
 from vision.ssd.config.fd_config import define_img_size
 
 class UltraLightFaceDetector(object):
@@ -18,9 +18,8 @@ class UltraLightFaceDetector(object):
         from vision.ssd.mb_tiny_fd import create_mb_tiny_fd, create_mb_tiny_fd_predictor
         from vision.ssd.mb_tiny_RFB_fd import create_Mb_Tiny_RFB_fd, create_Mb_Tiny_RFB_fd_predictor
         from vision.utils.misc import Timer
-
      
-        label_path = f"{os.path.expanduser('~')}/deepfake_detection/system/e2e/common/Ultra-Light-Fast-Generic-Face-Detector-1MB/models/voc-model-labels.txt"
+        label_path = f"{config.common_abs_path}/Ultra-Light-Fast-Generic-Face-Detector-1MB/models/voc-model-labels.txt"
 
         class_names = [name.strip() for name in open(label_path).readlines()]
         num_classes = len(class_names)
@@ -29,12 +28,12 @@ class UltraLightFaceDetector(object):
         self.threshold = threshold
 
         if network == 'slim':
-            model_path = f"{os.path.expanduser('~')}/deepfake_detection/system/e2e/common/Ultra-Light-Fast-Generic-Face-Detector-1MB/models/pretrained/version-slim-320.pth"
+            model_path = f"{config.common_abs_path}/Ultra-Light-Fast-Generic-Face-Detector-1MB/models/pretrained/version-slim-320.pth"
             # model_path = "models/pretrained/version-slim-640.pth"
             net = create_mb_tiny_fd(len(class_names), is_test=True, device = self.device)
             self.predictor = create_mb_tiny_fd_predictor(net, candidate_size = self.candidate_size, device = self.device)
         elif network == 'RFB':
-            model_path = f"{os.path.expanduser('~')}/deepfake_detection/system/e2e/common/Ultra-Light-Fast-Generic-Face-Detector-1MB/models/pretrained/version-RFB-320.pth"
+            model_path = f"{config.common_abs_path}/Ultra-Light-Fast-Generic-Face-Detector-1MB/models/pretrained/version-RFB-320.pth"
             # model_path = "models/pretrained/version-RFB-640.pth"
             net = create_Mb_Tiny_RFB_fd(len(class_names), is_test=True, device = self.device)
             self.predictor = create_Mb_Tiny_RFB_fd_predictor(net, candidate_size = self.candidate_size, device = self.device)

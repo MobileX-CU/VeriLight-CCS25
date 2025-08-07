@@ -44,22 +44,27 @@ def serialize(cv, feature_queue):
         
         print(Fore.MAGENTA + f"Got features in serialization thread at {datetime.fromtimestamp(time.time())}." + Style.RESET_ALL)
     
-        digest, _, _ = create_digest_from_features(dynamic_features, identity_features, feature_seq_num, output_path = f"{config.trial_materials_path}/features/signals_seq{feature_seq_num}.pkl", img_nums = img_nums)
+        digest, _, _ = create_digest_from_features(dynamic_features, identity_features, feature_seq_num, output_path = f"{config.session_output_path}/features/signals_seq{feature_seq_num}.pkl", img_nums = img_nums)
         
-        file = open(f"{config.trial_materials_path}/payloads/raw_digest_{feature_seq_num}.txt", "w") # before encryption, error corection or anything
+        file = open(f"{config.session_output_path}/embedded_data/raw_digest_{feature_seq_num}.txt", "w") # before encryption, error corection or anything
         file.write(digest)
         file.close()
 
         # use HMAC for integrity and authenticity. Digest contains the date ordinal and unit ID too.
-        digest = digest + np.binary_repr(config.unit_id, width = config.unit_id_size) + np.binary_repr(config.creation_date_ordinal, width = config.date_ordinal_size)
+        date_ordinal = datetime.now().toordinal() - config.creation_date_ordinal
+        date_ordinal_bits = np.binary_repr(date_ordinal, width = config.date_ordinal_size)
+        unit_id_bits = np.binary_repr(config.unit_id, width = config.unit_id_size)
+        assert len(unit_id_bits) == config.unit_id_size, f"Unit ID {config.unit_id} is not of size {config.unit_id_size} bits. Decrease the unit ID or increase the unit_id_size in config.py."
+        assert len(date_ordinal_bits) == config.date_ordinal_size, f"Date ordinal {date_ordinal} is not of size {config.date_ordinal_size} bits. Increase the creation_date_ordinal or increase the date_ordinal_size in config.py."
+        digest = digest + unit_id_bits + date_ordinal_bits
         digest_bytes = bitstring_to_bytes(digest)
-        hmac_obj = hmac.new(config.aes_key, digest_bytes, hashlib.sha1) 
-        hmac_tag = hmac_obj.digest()[:config.tag_len]
+        hmac_obj = hmac.new(config.key, digest_bytes, hashlib.sha1) 
+        hmac_tag = hmac_obj.digest()[:config.tag_size]
         hmac_tag_bits = bytes_to_bitstring(hmac_tag)
         signature = digest + hmac_tag_bits
 
         # dump signature, i.e., payload prior to any error correction
-        file = open(f"{config.trial_materials_path}/payloads/payload_{feature_seq_num}.txt", "w") 
+        file = open(f"{config.session_output_path}/embedded_data/payload_{feature_seq_num}.txt", "w") 
         file.write(signature)
         file.close()
 
@@ -68,21 +73,20 @@ def serialize(cv, feature_queue):
             coded_signature = config.error_corrector.encode_payload(signature)
         elif type(config.error_corrector) == ConcatenatedViterbiRS:
             coded_signature, rs_coded_signature = config.error_corrector.encode_payload(signature)
-            file = open(f"{config.trial_materials_path}/payloads/previterbi_{feature_seq_num}.txt", "w") #here, previterbi is RS-encoded
+            file = open(f"{config.session_output_path}/embedded_data/previterbi_{feature_seq_num}.txt", "w") #here, previterbi is RS-encoded
             file.write(rs_coded_signature)
             file.close()
         elif type(config.error_corrector) == SoftViterbi:
-            file = open(f"{config.trial_materials_path}/payloads/previterbi_{feature_seq_num}.txt", "w") #here, previterbi is the same as payload
+            file = open(f"{config.session_output_path}/embedded_data/previterbi_{feature_seq_num}.txt", "w") #here, previterbi is the same as payload
             file.write(signature)
             file.close()
             coded_signature = config.error_corrector.encode_payload(signature) 
 
         # pad with 0 bits up to num_info_cells * target_freq * window duration
-        print(f"Padding data of len {len(coded_signature)} to final payload size of {config.max_bits} bits.")
         padded_coded_signature = pad_bitstring(coded_signature, config.max_bits)
         
         # done constructing payload. save it at payloads path for it to now be ~optically embedded~
-        file = open(f"{config.trial_materials_path}/payloads/final_{feature_seq_num}.txt", "w")
+        file = open(f"{config.session_output_path}/embedded_data/final_{feature_seq_num}.txt", "w")
         file.write(padded_coded_signature)
         file.close()
 
@@ -99,21 +103,22 @@ def run_extraction(dump_feats = False):
     serialization_thread = threading.Thread(target=serialize, args=(kill_cv, feature_queue, ))
     serialization_thread.start()
 
-    while not os.path.isfile(f"{config.trial_materials_path}/synchronization/go.txt"):
+    while not os.path.isfile(f"{config.session_output_path}/process_synchronization/go.txt"):
+        time.sleep(0.1) # wait for the process to start
         pass
 
-    time.sleep(0.5)
+    time.sleep(0.5) # small delay to make sure the prcoess is ready for good
     
     try:
-        img_files = glob.glob( f"{config.trial_materials_path}/imgs/*")
+        img_files = glob.glob( f"{config.session_output_path}/imgs/*")
         latest_img_file = max(img_files, key=os.path.getctime)
         latest_img_file_num = int(latest_img_file.split("/")[-1].split(".npy")[0])
         img_num = latest_img_file_num
 
         curr_window_dynamic_features = []
         curr_window_num_frames = 0
-        time.sleep(0.1)
-        frame = np.load(f"{config.trial_materials_path}/imgs/{img_num}.npy")
+        time.sleep(0.1)  # give a bit of down time for the images to be fully read to read
+        frame = np.load(f"{config.session_output_path}/imgs/{img_num}.npy")
         first_win_img_save_time = None
         last_window_send = time.time()
         last_extracted_seq = -1
@@ -126,8 +131,8 @@ def run_extraction(dump_feats = False):
             #load img from npy array
             while True:
                 try:
-                    frame = np.load(f"{config.trial_materials_path}/imgs/{img_num}.npy")
-                    img_save_time = os.path.getctime(f"{config.trial_materials_path}/imgs/{img_num}.npy")
+                    frame = np.load(f"{config.session_output_path}/imgs/{img_num}.npy")
+                    img_save_time = os.path.getctime(f"{config.session_output_path}/imgs/{img_num}.npy")
                     break
                 except Exception as e:
                     pass
@@ -164,7 +169,7 @@ def run_extraction(dump_feats = False):
             curr_window_num_frames += 1
    
             if dump_feats:
-                with open(f"{config.trial_materials_path}/features/mp_img{img_num}.pkl", "wb") as pklfile:
+                with open(f"{config.session_output_path}/features/mp_img{img_num}.pkl", "wb") as pklfile:
                     pickle.dump(face_bbox, pklfile)
                     pickle.dump(detection_result, pklfile)
     

@@ -102,7 +102,7 @@ def create_minimal_frames_loc_corner(input_bitstring, cell_colors, loc_marker_co
     os.makedirs(output_parent_dir, exist_ok=True)
 
     dummy_frame = np.zeros((config.max_cells_H, config.max_cells_W, 3), dtype=np.float32)
-    max_bits_per_cell =  int(config.barcode_window_duration * config.frequency)
+    max_bits_per_cell =  int(config.embedding_window_duration * config.frequency)
     max_tot_bits =  int(config.num_info_cells * max_bits_per_cell)
     if len(input_bitstring) > max_tot_bits:
         while True:
@@ -113,7 +113,7 @@ def create_minimal_frames_loc_corner(input_bitstring, cell_colors, loc_marker_co
                 input_bitstring = input_bitstring[:max_tot_bits]
                 break
 
-    num_frames = int(config.barcode_window_duration * config.frequency * 2)
+    num_frames = int(config.embedding_window_duration * config.frequency * 2)
     lc = lcm(config.localization_frequency, config.frequency)
     num_frame_reps = int(lc / (config.frequency))
 
@@ -163,7 +163,7 @@ def create_minimal_frames_loc_border(input_bitstring, cell_colors, output_parent
     os.makedirs(output_parent_dir, exist_ok=True)
 
     dummy_frame = np.zeros((config.max_cells_H, config.max_cells_W, 3), dtype=np.float32)
-    max_bits_per_cell =  int(config.barcode_window_duration * config.frequency)
+    max_bits_per_cell =  int(config.embedding_window_duration * config.frequency)
     max_tot_bits =  int(config.num_info_cells * max_bits_per_cell)
     if len(input_bitstring) > max_tot_bits:
         while True:
@@ -174,7 +174,7 @@ def create_minimal_frames_loc_border(input_bitstring, cell_colors, output_parent
                 input_bitstring = input_bitstring[:max_tot_bits]
                 break
 
-    num_frames = int(config.barcode_window_duration * config.frequency * 2)
+    num_frames = int(config.embedding_window_duration * config.frequency * 2)
     lc = lcm(config.localization_frequency, config.frequency)
     num_frame_reps = int(lc / (config.frequency))
 

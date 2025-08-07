@@ -16,7 +16,12 @@ This guide is specific to these components, though the framework is compatible w
 The physical assembly of the core unit from the above parts is mostly up to the user. The only requirement is that the USB camera should be fixed relative to the SLM after calibration. You can achieve this however you want. We laser print a base to hold the SLM, Raspberry Pi, and Arducam steady. For interested users, we provide the base's design as both a [.beam file](raspi_and_evm230NP_base.beam) (for use with Beamo laser cutters) and [an SVG](raspi_and_evm230NP_base.svg).
 
 ## Software and Hardware Setup
-First time setup and installations.
+1. Clone this repo. 
+2. Clone the submodules by running:
+```
+git submodule init
+git submodule update
+```
 
 ### Hardware
 1. Use [Raspberry Pi Imager](https://projects.raspberrypi.org/en/projects/raspberry-pi-setting-up/2) to flash an SD card with a legacy 64-bit version*. Edit the configuration settings to set username and password and enable SSH, so that you can SSH with Pi in headless mode from even the first boot. 
@@ -32,7 +37,8 @@ First time setup and installations.
 Note: These instructions assume your PC is a Macbook. 
 1. Create a conda environment from the [provided yaml](df_mac.yml):
 `conda env create -f df_mac.yaml`
-2. Clone [this](https://github.com/jtfrey/uvc-util) Github repo for controlling UVC cameras. Build the uvc util tool as described in the README. Note: you will need xcode to do this.
+2.  Enter the uvc-util submodule (in the [embedding folder](../embedding/)) and build the uvc-util tool as described in the README. Note: you will need xcode to do this. The VeriLight code expects a binary named uvc-util at the top level of the uvc-util folder.
+<!-- 3. Download the UltraLightFace detector labels and checkpoint and place them in the [Ultra-Light-Fast-Generic-Face-Detector-1MB](../common/Ultra-Light-Fast-Generic-Face-Detector-1MB/) folder. Note: included in submodule-->
 3. Optionally enable SSH/SCP to the RaspberryPi from your PC without a password. Assuming there is already a keypair in ~/.ssh, just run `ssh-copy-id <user>@<host>` (e.g., `ssh-copy-id verilight@raspberrypi.local`)
 
 #### On the Raspberry Pi

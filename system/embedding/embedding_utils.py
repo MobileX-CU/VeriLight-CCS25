@@ -19,45 +19,25 @@ from numbers_parser import Document
 
 
 ###################################
-#   TRIAL PREP/MANAGEMENT UTILS   #
+#   OUTPUT PREP/MANAGEMENT UTILS   #
 ###################################
 def prepare_dirs():
-    os.system(f"rm {config.trial_materials_path}/config_slm.py")
-    os.system(f"rm {config.trial_materials_path}/config_3d_slm.py")
-    os.system(f"rm {config.trial_materials_path}/ber_logging.txt")
-    os.system(f"rm {config.trial_materials_path}/adaptation_logging.csv")
-    os.system(f"rm {config.trial_materials_path}/adaptation_logging.numbers")
-    os.system(f"rm {config.trial_materials_path}/imgs/*")
-    os.system(f"rm -r {config.trial_materials_path}/bmps/*")
-    os.system(f"rm {config.trial_materials_path}/cell_signal_plots/*")
-    os.system(f"rm {config.trial_materials_path}/signal_pkls/*")
-    os.system(f"rm {config.trial_materials_path}/vids_overtime/*")
-    os.system(f"rm {config.trial_materials_path}/cellvids_overtime/*")
-    os.system(f"rm {config.trial_materials_path}/synchronization/*")
-    os.system(f"rm {config.trial_materials_path}/payloads/*")
-    os.system(f"rm {config.trial_materials_path}/features/*")
-    os.system(f"rm {config.trial_materials_path}/perceptibility/*")
+    if os.path.exists(config.session_output_path):
+        print("Session output path already exists. Deleting old files.")
+        # delete all files in session output path
+        os.system(f"rm -r {config.session_output_path}/*")
 
-    os.makedirs(f"{config.trial_materials_path}/imgs", exist_ok = True)
-    os.makedirs(f"{config.trial_materials_path}/bmps", exist_ok = True)
-    os.makedirs(f"{config.trial_materials_path}/cell_signal_plots", exist_ok = True)
-    os.makedirs(f"{config.trial_materials_path}/signal_pkls", exist_ok = True)
-    os.makedirs(f"{config.trial_materials_path}/vids_overtime", exist_ok = True)
-    os.makedirs(f"{config.trial_materials_path}/cellvids_overtime", exist_ok = True)
-    os.makedirs(f"{config.trial_materials_path}/synchronization", exist_ok = True)
-    os.makedirs(f"{config.trial_materials_path}/payloads", exist_ok = True)
-    os.makedirs(f"{config.trial_materials_path}/features", exist_ok = True)
-    os.makedirs(f"{config.trial_materials_path}/perceptibility", exist_ok = True)
+    os.makedirs(f"{config.session_output_path}/imgs", exist_ok = True)
+    os.makedirs(f"{config.session_output_path}/bmps", exist_ok = True)
+    os.makedirs(f"{config.session_output_path}/signal_pkls", exist_ok = True)
+    os.makedirs(f"{config.session_output_path}/process_synchronization", exist_ok = True)
+    os.makedirs(f"{config.session_output_path}/embedded_data", exist_ok = True)
+    os.makedirs(f"{config.session_output_path}/features", exist_ok = True)
 
 def write_config_summary():
-    summary_file = open(f"{config.trial_materials_path}/config_summary.txt", "w")
+    summary_file = open(f"{config.session_output_path}/config_summary.txt", "w")
 
-    summary_file.write(f"============================= CONFIG {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =============================\n")
-    if config.TESTING_MODE:
-        summary_file.write(f"TESTING_MODE = {config.TESTING_MODE}\n")
-        summary_file.write(f"Chosen ID and Dynamic Hash K = {config.identity_hash_k}\n")
-    else:
-        summary_file.write(f"TESTING_MODE = {config.TESTING_MODE}\n")    
+    summary_file.write(f"============================= CONFIG {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =============================\n") 
     if not config.ADAPT:
         summary_file.write(f"ADAPT = {config.ADAPT}\n")
     else:
@@ -114,7 +94,7 @@ def stash_trial_data(stash_path):
     os.system(f"rm -r {trial_materials_folder_name}")
 
 def create_slm_config():
-    out = open(f"{config.trial_materials_path}/config_slm.py", "w")
+    out = open(f"{config.session_output_path}/config_slm.py", "w")
     out.write('"""This file is a modified copy of config.py generated for the SLM and copied to the Pi at the start of the session."""\n')
     out.write(f"fade = {config.fade}\n")
     out.write(f"scale_factor_disp = {config.scale_factor_disp}\n")
@@ -124,7 +104,7 @@ def create_slm_config():
     out.write(f"slm_H = {config.slm_H}\n")
     out.write(f"slm_W = {config.slm_W}\n")
     out.write(f"localization_N = {config.localization_N}\n")
-    out.write(f"barcode_window_duration  = {config.barcode_window_duration}\n")
+    out.write(f"embedding_window_duration  = {config.embedding_window_duration}\n")
     out.write(f"localization_frequency  = {config.localization_frequency}\n")
     out.write(f"frequency = {config.frequency}\n")
     out.write(f"target_channel = {config.target_channel}\n")
@@ -133,7 +113,7 @@ def create_slm_config():
     out.close()
 
 def create_slm_3d_config():
-    out = open(f"{config.trial_materials_path}/config_3d_slm.py", "w")
+    out = open(f"{config.session_output_path}/config_3d_slm.py", "w")
     out.write('"""This file is a modified copy of config.py generated for the SLM and copied to the Pi at the start of the session."""\n')
     out.write(f"fade = {config.fade}\n")
     out.write(f"scale_factor_disp = {config.scale_factor_disp}\n")
@@ -143,7 +123,7 @@ def create_slm_3d_config():
     out.write(f"slm_H = {config.slm_H}\n")
     out.write(f"slm_W = {config.slm_W}\n")
     out.write(f"localization_N = {config.localization_N}\n")
-    out.write(f"barcode_window_duration  = {config.barcode_window_duration}\n")
+    out.write(f"embedding_window_duration  = {config.embedding_window_duration}\n")
     out.write(f"row_freqs  = {config.row_freqs}\n")
     out.write(f"outline_width  = {config.outline_width}\n")
     out.write(f"freqs_lcm  = {config.freqs_lcm}\n")
@@ -159,7 +139,7 @@ def create_slm_3d_config():
     
 def nice_log_from_csv(csv_path):
     csv_name = csv_path.split("/")[-1].split(".csv")[0]
-    output_name = f"{config.trial_materials_path}/{csv_name}.numbers"
+    output_name = f"{config.session_output_path}/{csv_name}.numbers"
     doc = Document()
     sheets = doc.sheets
     table = sheets[0].tables[0]
@@ -231,7 +211,7 @@ def set_enc_params(override_slm_W = None, override_slm_H = None,
                override_N = None, override_buffer_space = None, 
                override_localization_N = None, override_reserved_localization_cells = None, 
                override_target_channel = None, override_frequency = None, 
-               override_barcode_window_duration = None):
+               override_embedding_window_duration = None):
     if override_N is not None:
         N = override_N
     else:
@@ -267,10 +247,10 @@ def set_enc_params(override_slm_W = None, override_slm_H = None,
     else:
         frequency = config.frequency
     
-    if override_barcode_window_duration is not None:
-        barcode_window_duration = override_barcode_window_duration
+    if override_embedding_window_duration is not None:
+        embedding_window_duration = override_embedding_window_duration
     else:
-        barcode_window_duration = config.barcode_window_duration
+        embedding_window_duration = config.embedding_window_duration
 
     max_cells_W = int((slm_W ) / (N + buffer_space))
     max_cells_H = int((slm_H + buffer_space) / (N + buffer_space))
@@ -281,7 +261,7 @@ def set_enc_params(override_slm_W = None, override_slm_H = None,
         max_cells = max_cells_H * max_cells_W 
 
 
-    return slm_W, slm_H, N, buffer_space, localization_N, max_cells_W, max_cells_H, reserved_localization_cells, target_channel, frequency, barcode_window_duration, max_cells
+    return slm_W, slm_H, N, buffer_space, localization_N, max_cells_W, max_cells_H, reserved_localization_cells, target_channel, frequency, embedding_window_duration, max_cells
 
 
 def get_imgseq_info(start_time, end_time, image_timestamps, fpss):
@@ -307,7 +287,7 @@ def get_imgseq(start_image_timestamp_i, end_image_timestamp_i):
     adaptive_log(f"Start and end image timestamps of sequence: {start_image_timestamp_i} {end_image_timestamp_i}", "DEBUG")
     img_seq = []
     for i in range(start_image_timestamp_i, end_image_timestamp_i + 1): #+3 for good measure
-        img = cv2.imread(f"{config.trial_materials_path}/imgs/hom_{i}.png")
+        img = cv2.imread(f"{config.session_output_path}/imgs/hom_{i}.png")
         if config.colorspace == "ycrcb":
             img = cv2.cvtColor(img, cv2.COLOR_BGR2YCR_CB)
         img_seq.append(img)
@@ -349,7 +329,7 @@ def overall_cell_to_row_col(overall_cell_num):
 
 def hom_images(Hom, start_image_timestamp_i, end_image_timestamp_i):
     for i in range(start_image_timestamp_i, end_image_timestamp_i + 1): #include end_imgage_timestamp_i
-        img_path = "{}/{}.npy".format(f"{config.trial_materials_path}/imgs", i)
+        img_path = "{}/{}.npy".format(f"{config.session_output_path}/imgs", i)
         # if not os.path.exists(img_path):
         #     while not os.path.exists(img_path):
         #         print(f"File {img_path} doesn't exist! Sleeping a bit until it appears..")
@@ -357,11 +337,11 @@ def hom_images(Hom, start_image_timestamp_i, end_image_timestamp_i):
         # img = cv2.imread(img_path)
         img = np.load(img_path)
         img = cv2.warpPerspective(img, Hom, (640, 360))
-        cv2.imwrite(f"{config.trial_materials_path}/imgs/hom_{i}.png", img)
+        cv2.imwrite(f"{config.session_output_path}/imgs/hom_{i}.png", img)
 
 def vis_img_seq(start_image_timestamp_i, end_image_timestamp_i):
     for i in range(start_image_timestamp_i, end_image_timestamp_i + 1):
-        img = cv2.imread(f"{config.trial_materials_path}/imgs/{i}.png")
+        img = cv2.imread(f"{config.session_output_path}/imgs/{i}.png")
         cv2.imshow("Image sequence", img)
         if cv2.waitKey(1) == ord('q'): break
 
@@ -373,7 +353,7 @@ def save_img_seq(start_image_timestamp_i, end_image_timestamp_i, output_name, fp
     else:
         adaptive_log("Invalid requested video codec in save_img_seq", "ERROR")
 
-    dummy = np.load("{}/{}.npy".format(f"{config.trial_materials_path}/imgs", start_image_timestamp_i))
+    dummy = np.load("{}/{}.npy".format(f"{config.session_output_path}/imgs", start_image_timestamp_i))
     H, W, _ = dummy.shape
     if vidcodec == "mp4v":
         if Hom:
@@ -387,9 +367,9 @@ def save_img_seq(start_image_timestamp_i, end_image_timestamp_i, output_name, fp
             out = cv2.VideoWriter("{}.avi".format(output_name), fourcc, fps, (W, H))
     for i in range(start_image_timestamp_i, end_image_timestamp_i + 1): #include end_imgage_timestamp_i
         if Hom:
-            img = cv2.imread("{}/hom_{}.png".format(f"{config.trial_materials_path}/imgs", i))
+            img = cv2.imread("{}/hom_{}.png".format(f"{config.session_output_path}/imgs", i))
         else:
-            img = np.load("{}/{}.npy".format(f"{config.trial_materials_path}/imgs", i))
+            img = np.load("{}/{}.npy".format(f"{config.session_output_path}/imgs", i))
         if input_colorspace == "ycrcb":
             img = cv2.cvtColor(img, cv2.COLOR_YCR_CB2BGR)
         
@@ -449,17 +429,13 @@ def get_uvc_cam_id(camera_name):
 def get_cam_id(camera_name):
     """
     Get camera index corresponding to the desired camera connected to the host computer
-    https://forum.opencv.org/t/how-to-specify-exact-camera-by-id-to-prevent-two-usb-cameras-from-being-switched-around-macos/12351/6
     """
-    command = ['ffmpeg','-f', 'avfoundation','-list_devices','true','-i','""']
+    command = ["./uvc-util/uvc-util", "-d"]
     result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
     cam_id = 0
-
-    for item in result.stderr.splitlines():
-        if "AVFoundation audio devices" in item:
-            break
+    for item in result.stdout.splitlines():
         if camera_name in item:
-            cam_id = int(item.split("[")[2].split(']')[0])
+            cam_id = int(item.split(" ")[0])
     
     adaptive_log("{} cam id is {}".format(camera_name, cam_id), "DEBUG")
     return cam_id

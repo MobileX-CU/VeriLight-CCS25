@@ -26,7 +26,7 @@ Your computer:
 2. Activate the provided conda environment (created from [df_mac.yml](df_mac.yml)) in each.
 
 
-## Running 
+## Running  
 You will need three terminals open: the first SSH'd into the Raspberry Pi, and the second two for running scripts locally on your computer, which should be ready to go from the Environment Prep section. 
 
 ### Calibration

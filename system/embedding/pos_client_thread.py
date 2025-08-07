@@ -94,8 +94,8 @@ class ClientThread(threading.Thread):
                             frequency = config.frequency
                     # compress the folder
                     seq_num = int(dir.split("seq")[-1])
-                    zipped_path = f"{config.trial_materials_path}/bmps/seq{seq_num}.zip"
-                    os.system(f"cd {config.trial_materials_path}/bmps \ && zip seq{seq_num}.zip seq{seq_num}/* >/dev/null 2>&1")
+                    zipped_path = f"{config.session_output_path}/bmps/seq{seq_num}.zip"
+                    os.system(f"cd {config.session_output_path}/bmps \ && zip seq{seq_num}.zip seq{seq_num}/* >/dev/null 2>&1")
 
 
                     file_size = os.path.getsize(zipped_path)

@@ -49,7 +49,7 @@ def frame_save(cv, frame_queue):
             frame = cv2.resize(frame, (int(frame.shape[1] * config.downsample_frames), int(frame.shape[0] * config.downsample_frames)), interpolation=cv2.INTER_AREA)
     
         start_save = time.time()
-        np.save("{}/{}.npy".format(f"{config.trial_materials_path}/imgs", num_saved), frame)
+        np.save("{}/{}.npy".format(f"{config.session_output_path}/imgs", num_saved), frame)
         end_save = time.time()
         num_saved += 1
         if i == 1:
@@ -60,7 +60,7 @@ def frame_save(cv, frame_queue):
             global global_fpss
             global_fpss.append(effective_fps)
             if num_saved % 300 == 0:
-                adaptive_log(f"Current effective FPS: {effective_fps}. Typical .npy save time: {end_save - start_save}.", "INFO")
+                adaptive_log(f"Current effective FPS: {effective_fps}. Typical .npy save time: {end_save - start_save}.", "DEBUG", flags = [Fore.BLUE])
 
 def cam_capture(cv, camera_name, frame_queue):
     """
@@ -72,8 +72,6 @@ def cam_capture(cv, camera_name, frame_queue):
     cap = cv2.VideoCapture(cam_id)
     if not cap.isOpened():
         return
-    if camera_name == "'s iPhone (2) Camera":
-        input("iPhone Continuity Camera ready? Press any key to continue.")
     num_frames = 0
     last_cap = time.time()
     while True:
@@ -107,19 +105,19 @@ def main():
 
     # create config on Pi
     create_slm_config()
-    while not os.path.exists(f"{config.trial_materials_path}/config_slm.py"):
+    while not os.path.exists(f"{config.session_output_path}/config_slm.py"):
         time.sleep(0.1)
     print("Config file created on Pi. Transferring to Pi...")
     ssh = SSHClient() 
     ssh.load_system_host_keys()
-    ssh.connect(config.host_ip, username="verilight")
+    ssh.connect(config.host_ip, username=config.host_username)
     with SCPClient(ssh.get_transport()) as scp:
-        scp.put(f"{config.trial_materials_path}/config_slm.py", "config.py")
+        scp.put(f"{config.session_output_path}/config_slm.py", "config.py")
     ssh.close()
     print("Transffered config.")
 
    
-    f_ber = open(f"{config.trial_materials_path}/ber_logging.csv", "w")
+    f_ber = open(f"{config.session_output_path}/ber_logging.csv", "w")
     f_ber.write("Seq,Hard Decoding Errors,Soft Decoding Errors\n")
 
     #######################
@@ -166,7 +164,7 @@ def main():
         while True:
             raw = input("Feature extraction script running and ready to go? (y/n):")
             if raw == "y":
-                fps_file = open(f"{config.trial_materials_path}/synchronization/go.txt", "w")
+                fps_file = open(f"{config.session_output_path}/process_synchronization/go.txt", "w")
                 fps_file.write("hi :)")
                 fps_file.close()
                 break
@@ -206,24 +204,24 @@ def main():
                         pass
 
             #check for serialized features from feature extraction proc
-            if os.path.isfile(f"{config.trial_materials_path}/payloads/final_{last_extracted_seq + 1}.txt"):
+            if os.path.isfile(f"{config.session_output_path}/embedded_data/final_{last_extracted_seq + 1}.txt"):
                 last_extracted_seq += 1
-                adaptive_log(f"Got features for seq {last_extracted_seq} at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')}", "INFO", flags = [Fore.BLUE])
+                adaptive_log(f"Extracted features for seq {last_extracted_seq} at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')}", "INFO", flags = [Fore.BLUE])
                 
                 # extract payload data
                 time.sleep(0.1) #give a little time for the file to be fully written
-                final_payload_file = open(f"{config.trial_materials_path}/payloads/final_{last_extracted_seq}.txt", "r")
-                final_payload = final_payload_file.read() #the final payload (bits to actually transmit)
-                previterbi = open(f"{config.trial_materials_path}/payloads/previterbi_{last_extracted_seq}.txt", "r").read() #the RS encoded data (prior to Viterbi encoding)
+                final_payload_file = open(f"{config.session_output_path}/embedded_data/final_{last_extracted_seq}.txt", "r")
+                final_payload = final_payload_file.read() # the final payload (bits to actually transmit)
+                previterbi = open(f"{config.session_output_path}/embedded_data/previterbi_{last_extracted_seq}.txt", "r").read() #the RS encoded data (prior to Viterbi encoding)
                 previterbi_payloads_by_seq[f"seq{last_extracted_seq}"] = previterbi
 
-                # create minimal barcode frames
-                barcode_dir = f"{config.trial_materials_path}/bmps/seq{last_extracted_seq}"
+                # create minimal bitmaps
+                barcode_dir = f"{config.session_output_path}/bmps/seq{last_extracted_seq}"
                 info_cell_bit_list = create_minimal_frames(final_payload, curr_cell_colors, curr_loc_marker_colors, barcode_dir)
                 final_payload_bitlists_by_seq[f"seq{last_extracted_seq}"] = info_cell_bit_list
 
-                #send barcode dir to client thread to request send to/display on SLM
-                adaptive_log(f"Sending features for seq {last_extracted_seq} at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')}", "INFO", flags = [Fore.BLUE])
+                # send bitmap dir to client thread to request send to/display on SLM
+                adaptive_log(f"Sending bitmaps for seq {last_extracted_seq} at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')}", "INFO", flags = [Fore.BLUE])
                 client_thread.req_queue.put((barcode_dir, False))
                 
                 #quickly check for exceptions in client thread before proceeding
@@ -268,7 +266,7 @@ def main():
     cam_thread.join()
     cam_save_thread.join()
     f_ber.close()
-    nice_log_from_csv(f"{config.trial_materials_path}/adaptation_logging.csv")
+    nice_log_from_csv(f"{config.session_output_path}/adaptation_logging.csv")
     
 
 if __name__ == '__main__':

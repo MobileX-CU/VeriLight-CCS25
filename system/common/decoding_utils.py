@@ -146,7 +146,7 @@ def set_dec_params(override_slm_W = None, override_slm_H = None,
                override_N = None, override_buffer_space = None, 
                override_localization_N = None, override_target_channel = None, override_analysis_colorspace = None,
                override_frequency = None, override_localization_frequency = None,
-               override_barcode_window_duration = None,
+               override_embedding_window_duration = None,
                override_lower_range_start = None, override_lower_range_end = None, 
                 override_upper_range_start  = None, override_upper_range_end = None, 
                 override_target_lower_epsilon = None, override_target_upper_epsilon = None, ):
@@ -185,10 +185,10 @@ def set_dec_params(override_slm_W = None, override_slm_H = None,
     else:
         localization_frequency = config.localization_frequency
     
-    if override_barcode_window_duration is not None:
-        barcode_window_duration = override_barcode_window_duration
+    if override_embedding_window_duration is not None:
+        embedding_window_duration = override_embedding_window_duration
     else:
-        barcode_window_duration = config.barcode_window_duration
+        embedding_window_duration = config.embedding_window_duration
 
     max_cells_W = int((slm_W ) / (N + buffer_space))
     max_cells_H = int((slm_H + buffer_space) / (N + buffer_space))
@@ -262,7 +262,7 @@ def set_dec_params(override_slm_W = None, override_slm_H = None,
         analysis_colorspace = config.colorspace
     
 
-    return slm_W, slm_H, N, buffer_space, localization_N, max_cells_W, max_cells_H, reserved_localization_cells, target_channel, analysis_colorspace, frequency, localization_frequency, barcode_window_duration, max_cells, lower_range_start, lower_range_end, upper_range_start, upper_range_end, target_lower_epsilon, target_upper_epsilon
+    return slm_W, slm_H, N, buffer_space, localization_N, max_cells_W, max_cells_H, reserved_localization_cells, target_channel, analysis_colorspace, frequency, localization_frequency, embedding_window_duration, max_cells, lower_range_start, lower_range_end, upper_range_start, upper_range_end, target_lower_epsilon, target_upper_epsilon
 
 
 def valid_r_c(r, c, max_cells_W,  max_cells_H, localization_N):

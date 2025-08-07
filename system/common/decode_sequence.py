@@ -22,8 +22,10 @@ from decoding_utils import maxSum
 def decode_sequence(image_sequence, fps, get_perceptibilities = False, gts = None, pkl_path_prefix = None, signal_pkls_path = None, display = False):
     """
     Parameters:
-        image_sequence: list of video frames consituting the window, homographied already
-        fps: frames per second of this video
+        image_sequence: list of np.array
+            list of video frames consituting the window, homographied already
+        fps: int
+            framerate of this video, FPS
         get_perceptibilities: if True, will return perceptibility scores for each cell
         gts: list of ground truth bits for each cell
         pkl_path_prefix: if provided, will save the signals for each cell to a pkl file with this prefix
@@ -31,7 +33,7 @@ def decode_sequence(image_sequence, fps, get_perceptibilities = False, gts = Non
         display: if True, will display plots of the signals and decoding process
     """
     
-    num_bits_per_cell = config.frequency * config.barcode_window_duration
+    num_bits_per_cell = config.frequency * config.embedding_window_duration
     
     # get sync cell signals 
     pilot_mags = []
@@ -65,7 +67,6 @@ def decode_sequence(image_sequence, fps, get_perceptibilities = False, gts = Non
                 
 
                 if display:
-
                     fig, axes = plt.subplots(3)
                     axes[0].set_title("Raw Cell Signal")
                     axes[0].plot(cell_signal)
@@ -132,8 +133,8 @@ def decode_sequence(image_sequence, fps, get_perceptibilities = False, gts = Non
                     else:
                         cell_hard_pred, cell_probs =  decode_data_cell_signal(sync_blinks, cell_signal)
                 else:
-                    cell_hard_pred = ''.join(['0' for i in range(int(config.barcode_window_duration * config.frequency))])
-                    cell_probs = [0 for i in range(int(config.barcode_window_duration * config.frequency))]
+                    cell_hard_pred = ''.join(['0' for i in range(int(config.embedding_window_duration * config.frequency))])
+                    cell_probs = [0 for i in range(int(config.embedding_window_duration * config.frequency))]
 
                 tot_probs += cell_probs
 
@@ -214,36 +215,46 @@ def get_overall_sync_blinks(pilot_signal, fps):
 
     if len(pilot_peaks) == 0:
         #return dummy template
-        template = [i* int((1/(config.frequency) / 2)*fps) for i in range(int(config.barcode_window_duration * config.frequency) * 2)]
+        template = [i* int((1/(config.frequency) / 2)*fps) for i in range(int(config.embedding_window_duration * config.frequency) * 2)]
         template = np.array(template)
         template += 3 #start???
         return template
 
     # filter peaks, considering only those in the largest continuous subsequence of detected peaks by prominence
     pilot_peak_prominences = pilot_peak_properties['prominences']
-    _, target_pilot_peak_is = maxSum(pilot_peak_prominences, len(pilot_peak_prominences), int(config.barcode_window_duration * config.frequency))
+    _, target_pilot_peak_is = maxSum(pilot_peak_prominences, len(pilot_peak_prominences), int(config.embedding_window_duration * config.frequency))
 
     # if short peaks, assess whether they should be at start or end and add as many as necessary
-    num_missing_peaks = int(config.barcode_window_duration * config.frequency) - len(target_pilot_peak_is)
+    num_missing_peaks = int(config.embedding_window_duration * config.frequency) - len(target_pilot_peak_is)
     if num_missing_peaks > 0:
         num_added_peaks = 0
         added_peaks = []
-        step = int((1/(config.frequency))*fps) #interpeak/intertrough distance
-        if pilot_peaks[target_pilot_peak_is][0] < 10: #add to beginning
-            #add equally spaces peaks to start until correct number of peaks present or less than 0
-            next_front_peak = pilot_peaks[target_pilot_peak_is][0] - step #initialize
+        step = int((1/(config.frequency))*fps) # interpeak/intertrough distance
+        if pilot_peaks[target_pilot_peak_is][0] < 10: # add to beginning if there appears to be space. Use 10 as a heuristic here.
+            # add equally spaces peaks to start until correct number of peaks present or no space to add
+            next_front_peak = pilot_peaks[target_pilot_trough_is][0] - step #initialize
             while num_added_peaks < num_missing_peaks and next_front_peak > 0:
                 added_peaks.append(next_front_peak)
                 next_front_peak -= step
                 num_added_peaks += 1
-        next_end_peak = pilot_peaks[target_pilot_peak_is][-1] + step #otherwise add to end
+        next_end_peak = pilot_peaks[target_pilot_peak_is][-1] + step # otherwise add to end
         while num_added_peaks < num_missing_peaks and next_end_peak < len(pilot_signal):
+            # add equally spaces peaks to end until correct number of peaks present or no space to add
             added_peaks.append(next_end_peak)
             next_end_peak -= step
             num_added_peaks += 1
+        # in worst case, there are simply not enough peaks and the above attempts to reconcile this fail, 
+        # so just tack on from end one after another so decoding can proceed
+        if num_added_peaks < num_missing_peaks:
+            next_end_peak = len(pilot_signal) - 1
+            while num_added_peaks < num_missing_peaks:
+                added_peaks.append(next_end_peak)
+                next_end_peak -= 1
+                num_added_peaks += 1
         added_peaks = np.array(added_peaks)
         target_pilot_peaks = np.concatenate((pilot_peaks[target_pilot_peak_is], added_peaks))
     else:
+        # too many/just the right amount of peaks detected
         target_pilot_peaks = pilot_peaks[target_pilot_peak_is]
 
     # filter troughs, only considering those occuring bewteen peaks
@@ -255,10 +266,34 @@ def get_overall_sync_blinks(pilot_signal, fps):
                     target_pilot_trough_is.append(j)
                     break 
     
-    # if short a trough, add one at the end, defined as last considered peak + half a period
-    if len(target_pilot_trough_is) == int(config.barcode_window_duration * config.frequency) - 1:
+    # if short or over troughs, assess whether they should be at start or end and add as many as necessary
+    num_missing_troughs = int(config.embedding_window_duration * config.frequency) - len(target_pilot_trough_is)
+    if num_missing_troughs == 1:
+        # most common case - just last trough missing. Using last peak as reference has worked well in practice.
         target_pilot_troughs = np.concatenate((pilot_troughs[target_pilot_trough_is], np.array([target_pilot_peaks[-1] + int((1/(config.frequency))*fps/2)])))
+    elif len(target_pilot_trough_is) != int(config.embedding_window_duration * config.frequency):
+        # more than one trough missing, we will add multiple. Start by adding to the end with space from the last trough
+        added_troughs = []
+        step = int((1/(config.frequency))*fps) # interpeak/intertrough distance
+        next_end_trough = target_pilot_peaks[-1] + step
+        num_added_troughs = 0
+        while num_added_troughs < num_missing_troughs and next_end_trough < len(pilot_signal):
+            added_troughs.append(next_end_trough)
+            next_end_trough += step
+            num_added_troughs += 1
+        # in worst case, there are simply not enough troughs and the above attempts to reconcile this fail, 
+        # so just tack on from end one after another so decoding can proceed
+        if num_added_troughs < num_missing_troughs:
+            next_end_trough = len(pilot_signal) - 1
+            while num_added_troughs < num_missing_troughs:
+                added_troughs.append(next_end_trough)
+                next_end_trough -= 1
+                num_added_troughs += 1
+        added_troughs = np.array(added_troughs)
+        target_pilot_troughs = np.concatenate((pilot_troughs[target_pilot_trough_is], added_troughs))
+        # target_pilot_troughs = np.concatenate((pilot_troughs[target_pilot_trough_is], np.array([target_pilot_peaks[-1] + int((1/(config.frequency))*fps/2)])))
     else:
+        # too many/just the right amount of troughs detected
         target_pilot_troughs = pilot_troughs[target_pilot_trough_is]
 
     target_sync_cell_blinks = np.concatenate((target_pilot_peaks, target_pilot_troughs)) 
@@ -286,7 +321,7 @@ def get_individ_sync_cell_blinks(pilot_signal, fps):
 
     # filter peaks, considering only those in the largest continuous subsequence of detected peaks by prominence
     pilot_peak_prominences = pilot_peak_properties['prominences']
-    _, target_pilot_peak_is = maxSum(pilot_peak_prominences, len(pilot_peak_prominences), int(config.barcode_window_duration * config.frequency))
+    _, target_pilot_peak_is = maxSum(pilot_peak_prominences, len(pilot_peak_prominences), int(config.embedding_window_duration * config.frequency))
         
     # filter troughs, only considering those occuring bewteen peaks
     target_pilot_trough_is = []
@@ -300,19 +335,19 @@ def get_individ_sync_cell_blinks(pilot_signal, fps):
     target_pilot_peaks = pilot_peaks[target_pilot_peak_is]
     
     # if short a peak, add one at the start, defined as the first considered peak - a period
-    if len(target_pilot_peak_is) == int(config.barcode_window_duration * config.frequency)- 1:
+    if len(target_pilot_peak_is) == int(config.embedding_window_duration * config.frequency)- 1:
         target_pilot_peaks = np.concatenate((np.array([pilot_peaks[target_pilot_peak_is][0]]) - int((1/(config.frequency))*fps), pilot_peaks[target_pilot_peak_is]))
     else:
         target_pilot_peaks = pilot_peaks[target_pilot_peak_is]
 
     # if short a trough, add one at the end, defined as last considered peak + half a period
-    if len(target_pilot_trough_is) == int(config.barcode_window_duration * config.frequency )- 1:
+    if len(target_pilot_trough_is) == int(config.embedding_window_duration * config.frequency )- 1:
         #target_pilot_troughs = np.concatenate((pilot_troughs[target_pilot_trough_is], np.array([pilot_peak_properties['right_bases'][target_pilot_peak_is[-1]]])))
         target_pilot_troughs = np.concatenate((pilot_troughs[target_pilot_trough_is], np.array([target_pilot_peaks[-1] + int((1/(config.frequency))*fps/2)])))
     else:
         target_pilot_troughs = pilot_troughs[target_pilot_trough_is]
     
-    if len(target_pilot_peaks) != int(config.barcode_window_duration * config.frequency)  or len(target_pilot_troughs) != int(config.barcode_window_duration * config.frequency):
+    if len(target_pilot_peaks) != int(config.embedding_window_duration * config.frequency)  or len(target_pilot_troughs) != int(config.embedding_window_duration * config.frequency):
         return None
 
     target_sync_cell_blinks = np.concatenate((target_pilot_peaks, target_pilot_troughs)) 
@@ -333,8 +368,8 @@ def decode_data_cell_signal(sync_cell_blinks, raw_cell_signal, plot_title = None
     """
     smoothed_cell_signal, fully_processed_cell_signal, neg_env = process_signal(raw_cell_signal, rollingavg_n = config.signal_rollingavg_n, detrending_rollingmin_n = config.signal_detrending_rollingmin_n, detrending_rollingavg_n = config.signal_detrending_rollingavg_n, fps = fps)
 
-    pred_string = ['0' for i in range(int(config.frequency * config.barcode_window_duration))]
-    probs = ['0' for i in range(int(config.frequency * config.barcode_window_duration))]
+    pred_string = ['0' for i in range(int(config.frequency * config.embedding_window_duration))]
+    probs = [0 for i in range(int(config.frequency * config.embedding_window_duration))]
     diffs = []
     for i in range(0, len(sync_cell_blinks), 2):
         if i + 1 >= len(sync_cell_blinks):

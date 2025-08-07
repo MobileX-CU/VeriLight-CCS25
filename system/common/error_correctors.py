@@ -1,12 +1,7 @@
 """
-Various error correction codes
-Reed Solomon
-Reed Muller
-Viterbi
-Concatenated Reed Solomon + Viterbi (used in paper)
+Various error correction code: Reed Solomon, Viterbi, Concatenated Reed Solomon + Viterbi (used in paper)
 """
 import unireedsolomon as rs
-from reed_muller import ReedMuller as ReedMullerImp
 import random
 import glob
 from viterbi import bit_encoder_K2, bit_encoder_K5, stream_encoder, Decoder, Channel
@@ -80,9 +75,7 @@ class ReedSolomon(object):
         for feature_proc serialization to use - take in bitstring, output bitstring of concatenated codewords
         """
         codewords = self.encode(message_bitsrting)
-        print("codewords length: ", len(codewords))
         enc_bitstring = self.codewords_to_bitstring(codewords)
-        print("enc_bitstring length: ", len(enc_bitstring))
         return enc_bitstring
 
     def decode(self, codewords):
@@ -147,78 +140,6 @@ class ReedSolomon(object):
         print(f"Input bitstring:     {test_message_bitstring}")
         print(f"Recovered bitstring: {recovered_bitstring}")
         print(f"Total errors: {err} bits") 
-
-
-class ReedMuller(object):
-   
-    def __init__(self, r, m):
-        self.r = r
-        self.m = m
-        self.coder = ReedMullerImp(r, m)
-        self.message_chunk_len = self.coder.message_length()
-        self.codeword_len = self.coder.block_length()
-    
-    def strength(self):
-        return self.coder.strength()
-
-    def encode(self, message_bitstring):
-        """
-        message_bitsrting : str containing only 0s and 1s, where each 0 and 1 is treated as an actual binary 1/0 value, not
-                            a char "1" or "0"
-        """
-        #split symbols into chunks of size message_chunk_len and obtain codeword for each 
-        #if the last chunk has less than n bytes, pad it with "0" until it is of size message_chunk_len
-        codewords = []
-        for i in range(0, len(message_bitstring), self.message_chunk_len):
-            if i + self.message_chunk_len > len(message_bitstring):
-                num_padding_symbols = self.message_chunk_len - (len(message_bitstring) - i)
-                chunk = message_bitstring[i:]
-                for n in range(num_padding_symbols):
-                    chunk += '0'
-            else:
-                chunk = message_bitstring[i:i+self.message_chunk_len]
-           
-            codeword = ''.join(map(str, self.coder.encode(list(map(int, chunk)))))
-            codewords.append(codeword)
-        return codewords
-
-    def decode(self, codewords):
-        recovered_bitstring = ""
-        for i, c in enumerate(codewords):
-            try:
-                recovered_chunk = ''.join(map(str, self.coder.decode(list(map(int, c)))))
-            except:
-                print(f"Reed Muller can't decode codeword {i}. The recovered message will just be all zeros.")
-                recovered_chunk = ''.join(['0' for i in range(self.message_chunk_len)])
-            recovered_bitstring += recovered_chunk
-        return recovered_bitstring
-
-    def noise_codewords(self, codewords, flip_probability):
-        #add noise to the codewords by flipping bits
-        noised_codewords = []
-        num_bit_flips = 0
-        for c in codewords:
-            noised_c = ""
-            for i in c:
-                if random.randint(0, 100) <= flip_probability*100:
-                    num_bit_flips += 1
-                    if i == "1":
-                        noised_c += "0"
-                    else:
-                        noised_c += "1"
-                else:
-                    noised_c += i
-            noised_codewords.append(noised_c)
-        return noised_codewords, num_bit_flips
-
-    def check(self, test_message_bitstring):
-        codewords = self.encode(test_message_bitstring)
-        recovered_bitstring = self.decode(codewords)
-        err = sum(c1!=c2 for c1,c2 in zip(test_message_bitstring, recovered_bitstring))
-        print("----- REED MULLER CHECK -----")
-        print(f"Input bitstring:     {test_message_bitstring}")
-        print(f"Recovered bitstring: {recovered_bitstring}")
-        print(f"Total errors: {err} bits")
 
 
 #######################
@@ -289,7 +210,6 @@ class ConcatenatedViterbiRS(object):
             None
         """
         self.viterbi_coder = SoftViterbi(v_k)
-        print("RS WITH N ", n, "INTIALIZED")
         self.rs_coder = ReedSolomon(n, rs_k)
     
     def encode_payload(self, input_bitstring):
@@ -379,12 +299,12 @@ def evaluate_error_correction(ec, payloads_path, n, exclude_seqs = None):
         unencoded = f.read()
         f.close()
 
-        f = open(f"../embedding/trial_temp/payloads/{seq_num}.txt")
+        f = open(f"../embedding/trial_temp/embedded_data/{seq_num}.txt")
         encoded = f.read()[:(n*8)] #remove any padded added to payload to reach full bandwidth
         f.close()
 
         try:
-            f = open(f"../embedding/trial_temp/payloads/pred_{seq_num}.txt")
+            f = open(f"../embedding/trial_temp/embedded_data/pred_{seq_num}.txt")
             pred = f.read()[:(n*8)] #remove any padded added to payload to reach full bandwidth
             f.close()
         except:

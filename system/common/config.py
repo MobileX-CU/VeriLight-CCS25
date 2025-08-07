@@ -13,30 +13,25 @@ from colorama import Fore, Style, Back
 import sys 
 import os
 
-LOG_LEVEL  = "DEBUG"
+LOG_LEVEL  = "INFO"
 
-trial_materials_path = "mar3" # path to folder to store output for this trial
+session_output_path  = "example" # path to folder to store output for this session. WILL BE OVERWRITTEN IF ALREADY EXISTS.
 
-config_abs_path = "/Users/hadleigh/deepfake_detection/system/e2e/common"
+common_abs_path = "/Users/hadleigh/deepfake_detection/system/e2e/common" # absolute path to the common folder
 
-host_ip =  "raspberrypi.local"
+host_ip = "raspberrypi.local"
+host_username = "hadleigh" # username on the host Pi
 
-barcode_window_duration = 4 #seconds
+embedding_window_duration = 4 #seconds
 N = 29 # edge length of cell (SLM pixels)
-buffer_space = 12 #num SLM pixels between cells
+buffer_space = 12 # num SLM pixels between cells
 
-off = False
-if off:
-    init_min_tot_slm = 0
-    init_slm_bgr = [0, 0, 0]
-    min_tot_slm_inc = 0
-    min_tot_slm_dec = 0
-else:
-    init_min_tot_slm = 100 # intiail value for minimum total SLM intensity (will be incremented/decremented through adaptation)
-    init_slm_bgr =  [0, 255, 250]#[250, 0, 250] # color of the SLM cells before adaptation kicks in (first few sequences)
 
-    min_tot_slm_inc = 0 #5
-    min_tot_slm_dec = 0 # 5 
+init_min_tot_slm = 100 # initial value for minimum total SLM intensity (will be incremented/decremented through adaptation)
+init_slm_bgr =  [0, 255, 250] # color of the SLM cells before adaptation kicks in (first few sequences)
+
+min_tot_slm_inc = 5
+min_tot_slm_dec = 5 
 
 ###########################################################################################
 ############################    DO NOT EDIT BELOW THIS LINE    ############################
@@ -45,9 +40,7 @@ else:
 ###################################
 #######   MISCELLANEOUS   ########
 ###################################
-
-TESTING_MODE = False
-ADAPT = True
+ADAPT = True # can be set to False to disable adaptation and use init_min_tot_slm and init_slm_bgr throughout, for debugging
 
 save_calibration_video = True
 vis_calibration_video = False
@@ -58,7 +51,7 @@ port = 6000  #port on Rapsberry Pi to establish client-server connection with
 #######   VERIFICATION  ########
 ###################################
 window_alignment_epsilon = 20
-min_interwin_time = barcode_window_duration * .9 # used in trough detection for window start/end frame detection
+min_interwin_time = embedding_window_duration * .9 # used in trough detection for window start/end frame detection
 interwin_detection_bandpass_tolerance = 2 
 
 interwin_upper_env_rollingmax_n = 9
@@ -73,21 +66,17 @@ signal_detrending_rollingmin_n = signal_detrending_rollingavg_n = 11 # None if n
 ###################################
 #######   SIGNATURE ASSEMBLY   ########
 ###################################
-bin_seq_num_size = 8 # 23 bits if no checksum in digest
-
+bin_seq_num_size = 8 # bits
 date_ordinal_size = 15 # bits
 creation_date_ordinal = 739313 # subtract this from all date ordinals to prevent overflow of our <date_ordinal_size> bits dedicated to days
-
 unit_id_size = 8  #bits
-if not os.path.exists(f"{config_abs_path}/unit_id.txt"):
-    with open(f"{config_abs_path}/unit_id.txt", "w") as file:
+if not os.path.exists(f"{common_abs_path}/unit_id.txt"):
+    with open(f"{common_abs_path}/unit_id.txt", "w") as file:
         unit_id = random.getrandbits(unit_id_size)
         file.write(str(unit_id))
 else:
-    with open(f"{config_abs_path}/unit_id.txt", "r") as file:
+    with open(f"{common_abs_path}/unit_id.txt", "r") as file:
         unit_id = int(file.read())
-print("UNIT ID IS ", unit_id)
-
 
 ###################################
 #######   SLM PROJECTION   ########
@@ -161,7 +150,7 @@ else:
             reserved_localization_cells.append(f"{r}-0")
         count += 1
 
-max_bits = int(frequency * barcode_window_duration * num_info_cells)
+max_bits = int(frequency * embedding_window_duration * num_info_cells)
 
 ##################################
 #########   ADAPTATION   #########
@@ -179,16 +168,15 @@ min_norm_localization_ratio = 3
 #########   ENCRYPTION/HMAC Generation   #########
 ##################################
 tag_size = 10 # bytes 
-aes_key_size = 16 #bytes
-nonce_size = 8 #bytes, only relevant if doing AES encryption
-key_path = f"{config_abs_path}/aes_key{aes_key_size}.pkl"
+key_size = 16 #bytes
+key_path = f"{common_abs_path}/key{key_size}.pkl"
 if not os.path.exists(key_path):
-    aes_key = get_random_bytes(aes_key_size)
+    key = get_random_bytes(key_size)
     with open(key_path, "wb") as pklfile:
-        pickle.dump(aes_key, pklfile)
+        pickle.dump(key, pklfile)
 else:
     with open(key_path, "rb") as pklfile:
-        aes_key = pickle.load(pklfile)
+        key = pickle.load(pklfile)
 
 ####################################
 #####   MEDIAPIPE EXTRACTION   #####
@@ -200,7 +188,7 @@ target_features = ['0-17', '40-17', '270-17', '0-91', '0-321', 6, 7, 8, 9, 10, 1
 bbox_norm_dists = True
 
 downsample_frames = 2/3
-video_window_duration = barcode_window_duration + 0.5 #seconds
+video_window_duration = embedding_window_duration + 0.5 #seconds
 target_samples_per_second = 20 # <- downsample features to this rate
 single_dynamic_signal_len = int(target_samples_per_second * video_window_duration)
 concat_dynamic_signal_len = single_dynamic_signal_len * len(target_features)
@@ -210,22 +198,11 @@ concat_dynamic_signal_len = single_dynamic_signal_len * len(target_features)
 ##############################################
 # Viterbi k
 vit_k = 5
-
-if TESTING_MODE:
-    # ignore encryption contraints for now, choose hash_k's such that everything is guaranteed to fit in the payload given the encryption settings
-    # forcce no RS encoding
-    identity_hash_k = dynamic_hash_k = int(((max_bits / 2) - vit_k*2 - 8) // 2)
-    payload_size =  8 + identity_hash_k + dynamic_hash_k
-else: 
-    # use user-specified hash sizes
-    identity_hash_k = 150
-    dynamic_hash_k = 150
-    digest_size = int(np.ceil((8 + identity_hash_k//2 + dynamic_hash_k + 8)/8)) * 8 + unit_id_size + date_ordinal_size 
-    payload_size = digest_size + tag_size * 8
-    min_viterbi_encoded_payload_size = payload_size * 2 + vit_k * 2 # the ultimate payload size after Viterbi encoding of the encrypted payload, assuming no RS coding
-    if min_viterbi_encoded_payload_size > max_bits:
-        print(Fore.YELLOW + Back.RED + "ERROR: Encrypted + Viterbi encoded payload obtained with given hash_k and encryption settings is too large, even without RS coding." + Style.RESET_ALL)
-        sys.exit()
+# use user-specified hash sizes
+identity_hash_k = 150
+dynamic_hash_k = 150
+digest_size = int(np.ceil((bin_seq_num_size + identity_hash_k//2 + dynamic_hash_k + unit_id_size + date_ordinal_size )/8)) * 8 
+payload_size = digest_size + tag_size * 8
 
 # determine how much RS encoding can be used
 rs_n, rs_k = get_rs_params(max_bits, payload_size, viterbi_k=vit_k)
@@ -239,28 +216,28 @@ else:
 
 #initialize random projection LSH functions
 id_hash_func_name = f"len512_k{identity_hash_k}"
-if not os.path.exists(f"{config_abs_path}/{id_hash_func_name}.pkl"):
+if not os.path.exists(f"{common_abs_path}/{id_hash_func_name}.pkl"):
     id_fam = CosineHashFamily(512)
     id_hash_funcs = [id_fam.create_hash_func() for h in range(identity_hash_k)]
 
-    with open(f"{config_abs_path}/{id_hash_func_name}.pkl", "wb") as file:
+    with open(f"{common_abs_path}/{id_hash_func_name}.pkl", "wb") as file:
         pickle.dump(id_fam, file)
         pickle.dump(id_hash_funcs, file)
 else:
-    with open(f"{config_abs_path}/{id_hash_func_name}.pkl", "rb") as file:
+    with open(f"{common_abs_path}/{id_hash_func_name}.pkl", "rb") as file:
         id_fam = pickle.load(file)
         id_hash_funcs = pickle.load(file)
 
 dyn_hash_func_name = f"len{concat_dynamic_signal_len}_k{dynamic_hash_k}"
-if not os.path.exists(f"{config_abs_path}/{dyn_hash_func_name}.pkl"):
+if not os.path.exists(f"{common_abs_path}/{dyn_hash_func_name}.pkl"):
     dynamic_fam = CosineHashFamily(concat_dynamic_signal_len)
     dynamic_hash_funcs = [dynamic_fam.create_hash_func() for h in range(dynamic_hash_k)]
 
-    with open(f"{config_abs_path}/{dyn_hash_func_name}.pkl", "wb") as file:
+    with open(f"{common_abs_path}/{dyn_hash_func_name}.pkl", "wb") as file:
         pickle.dump(dynamic_fam, file)
         pickle.dump(dynamic_hash_funcs, file)
 else:
-    with open(f"{config_abs_path}/{dyn_hash_func_name}.pkl", "rb") as file:
+    with open(f"{common_abs_path}/{dyn_hash_func_name}.pkl", "rb") as file:
         dynamic_fam = pickle.load(file)
         dynamic_hash_funcs = pickle.load(file)
 
@@ -284,12 +261,8 @@ max_vert_sep = 10
 ##### PREPARE OUTPUT #####
 ##########################    
 print("============================= CONFIG =============================")
-print(f"Trial materials output at {trial_materials_path}")
-if TESTING_MODE:
-    print(f"""TESTING_MODE = {Style.BRIGHT}{Back.MAGENTA}{TESTING_MODE}{Style.RESET_ALL}""")
-    print(f"Chosen ID and Dynamic Hash K = {identity_hash_k}")
-else:
-    print(f"TESTING_MODE = {TESTING_MODE}")    
+print(f"Trial materials output at {session_output_path}")
+   
 if not ADAPT:
     print(f"""ADAPT= {Style.BRIGHT}{Back.MAGENTA}{ADAPT}{Style.RESET_ALL}""")
 else:
@@ -304,6 +277,7 @@ print(f"N = {N}, buffer_space = {buffer_space}")
 print(f"Max cells_H = {max_cells_H}, Max cells_W = {max_cells_W}")
 print(f"Num pilot cells = {num_pilot_cells}, Num info cells = {num_info_cells}")
 print(f"Max bits per window = {max_bits}")
+print("Raw payload (i.e., signature) size = ", payload_size)
 if rs_n <= rs_k:
     print(f"""Error corrector: Soft Viterbi{Fore.YELLOW}. No room for RS encoding{Style.RESET_ALL}""")
 else:

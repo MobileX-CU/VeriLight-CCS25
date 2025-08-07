@@ -26,7 +26,7 @@ def get_slm_bgr(ref_bgr, min_tot_slm = 80):
     
 def adapt(ad_queue, cell_colors_mins_queue, ready_adapt_queue, plot_all_signals = False): 
 
-    f_adaptation = open(f"{config.trial_materials_path}/adaptation_logging.csv", "w")
+    f_adaptation = open(f"{config.session_output_path}/adaptation_logging.csv", "w")
     f_adaptation.write("Seq,r,c,Ref B,Ref G,Ref R,Target B,Target G,Target B,Perceptibility,Curr Tot Min SLM,Target Tot Min SLM,Hard Decoding Errors,Soft Decoding Errors,Loc Mag,Loc Mag Ratio,Mean Pilot Mag\n")
 
     ready_adapt_queue.put(True)
@@ -39,21 +39,17 @@ def adapt(ad_queue, cell_colors_mins_queue, ready_adapt_queue, plot_all_signals 
         last_disp_start_time , last_disp_end_time, last_disp_seq_num, Hom, last_disp_payload, last_disp_rs_encoded, image_timestamps, fpss, curr_cell_min_tot_slms, curr_loc_marker_min_tot_slms = adapt_params_input
 
         fps, start_image_timestamp_i, end_image_timestamp_i = get_imgseq_info(last_disp_start_time, last_disp_end_time, image_timestamps, fpss) 
-        adaptive_log(f"Adapting image sequence {last_disp_seq_num}, with core unit FPS of {fps}", "INFO", flags = [Fore.MAGENTA])
+        adaptive_log(f"Adapting image sequence {last_disp_seq_num}, with core unit FPS of {fps}", "INFO", flags = [Fore.BLUE])
 
         #apply homography to raw images in the sequence, and then generate the sequence as an array 
         hom_images(Hom, start_image_timestamp_i, end_image_timestamp_i)
         image_sequence = get_imgseq(start_image_timestamp_i, end_image_timestamp_i) 
 
-        # save the homography-corrected images to a video file, for debugging purposes
-        # do not use in deployment, as it will slow down adaptation
-        # save_img_seq(start_image_timestamp_i, end_image_timestamp_i,  f"{config.trial_materials_path}/vids_overtime/seq{last_disp_seq_num}_start{last_disp_start_time}", fps, vidcodec="mp4v", save_cells = False, Hom = True)
-
         # get channel cell signals and magnitudes (magnitudes for localization magnitude reference)
-        adaptive_log(f"Getting channel pilot cell signals and mags for {last_disp_seq_num}.", "INFO", flags = [Fore.MAGENTA])
+        adaptive_log(f"Getting channel pilot cell signals and mags for {last_disp_seq_num}.", "DEBUG", flags = [Fore.BLUE])
         
         # decode cell signals, getting both hard values and probabilities. also get on and off cell BGR values, for use in perceptibilty adaptation
-        tot_hard_pred, tot_probs, tot_gt, pilot_mags, all_perceptibilities, all_off_cell_bgrs = decode_sequence(image_sequence, fps, get_perceptibilities = True, gts = last_disp_payload, pkl_path_prefix = f"{config.trial_materials_path}/signal_pkls/seq{last_disp_seq_num}", display = False)
+        tot_hard_pred, tot_probs, tot_gt, pilot_mags, all_perceptibilities, all_off_cell_bgrs = decode_sequence(image_sequence, fps, get_perceptibilities = True, gts = last_disp_payload, pkl_path_prefix = f"{config.session_output_path}/signal_pkls/seq{last_disp_seq_num}", display = False)
         
         # perform soft Viterbie decoding from probabilities obtained above to recover the payload, still RS-encoded
         # ignore the boolean returned by decode_payload indicating or not the sequence was actually correctable, because 
@@ -61,7 +57,6 @@ def adapt(ad_queue, cell_colors_mins_queue, ready_adapt_queue, plot_all_signals 
         if type(config.error_corrector) == SoftViterbi:
             pred_previterbi_encoded, _ = config.error_corrector.decode_payload(tot_probs[:config.viterbi_payload_size])# rs here is a misnomer but it's ok
         elif type(config.error_corrector) == ConcatenatedViterbiRS:
-            print(len(tot_probs), config.viterbi_payload_size)
             if len(tot_probs) < config.viterbi_payload_size:
                 for i in range(config.viterbi_payload_size - len(tot_probs)):
                     tot_probs.append(0)
@@ -73,7 +68,7 @@ def adapt(ad_queue, cell_colors_mins_queue, ready_adapt_queue, plot_all_signals 
         hard_decoding_err = sum(c1!=c2 for c1,c2 in zip(tot_gt, tot_hard_pred))
 
         # adapt all channel pilots + info cells based on errors, any localization border cells based on mag
-        adaptive_log(f"Adapting cell colors for {last_disp_seq_num}.", "INFO", flags = [Fore.MAGENTA])
+        adaptive_log(f"Adapting cell colors for {last_disp_seq_num}.", "INFO", flags = [Fore.BLUE])
         pilot_mags = np.array(pilot_mags)
         mean_pilot_mag = np.mean(pilot_mags)
         new_min_tot_slms = []
@@ -87,7 +82,7 @@ def adapt(ad_queue, cell_colors_mins_queue, ready_adapt_queue, plot_all_signals 
                 if f"{r}-{c}" in config.reserved_localization_cells:
                     # this is a localization border cell. adap based on mag
                     cell_signal = get_nonloc_cell_signal_from_imgseq(image_sequence, r, c)
-                    with open(f"{config.trial_materials_path}/signal_pkls/seq{last_disp_seq_num}_loc_r{r}_c{c}.pkl", "wb") as pklfile:
+                    with open(f"{config.session_output_path}/signal_pkls/seq{last_disp_seq_num}_loc_r{r}_c{c}.pkl", "wb") as pklfile:
                         pickle.dump(cell_signal, pklfile)
                     
                     cell_mag = get_normalized_mag_at_freq(cell_signal, fps)
@@ -120,7 +115,7 @@ def adapt(ad_queue, cell_colors_mins_queue, ready_adapt_queue, plot_all_signals 
                     new_min_tot_slms.append(target_min_tot_slm) 
                     target_slm_bgr = get_slm_bgr(all_off_cell_bgrs[overall_cell_num], min_tot_slm = target_min_tot_slm)
                     new_cell_colors.append(target_slm_bgr)
-                    f_adaptation.write(f"{last_disp_seq_num},{r},{c},{all_off_cell_bgrs[overall_cell_num][0]},{all_off_cell_bgrs[overall_cell_num][1]},{all_off_cell_bgrs[overall_cell_num][2]},{target_slm_bgr[0]},{target_slm_bgr[1]},{target_slm_bgr[2]},{all_perceptibilities[overall_cell_num]},{curr_cell_min_tot_slms[overall_cell_num]},{target_min_tot_slm},{hard_decoding_err}/{config.num_info_cells*config.frequency*config.barcode_window_duration},{soft_decoding_err}/{len(pred_previterbi_encoded)},-,-,-\n")
+                    f_adaptation.write(f"{last_disp_seq_num},{r},{c},{all_off_cell_bgrs[overall_cell_num][0]},{all_off_cell_bgrs[overall_cell_num][1]},{all_off_cell_bgrs[overall_cell_num][2]},{target_slm_bgr[0]},{target_slm_bgr[1]},{target_slm_bgr[2]},{all_perceptibilities[overall_cell_num]},{curr_cell_min_tot_slms[overall_cell_num]},{target_min_tot_slm},{hard_decoding_err}/{config.num_info_cells*config.frequency*config.embedding_window_duration},{soft_decoding_err}/{len(pred_previterbi_encoded)},-,-,-\n")
    
                 overall_cell_num += 1
         
@@ -130,7 +125,7 @@ def adapt(ad_queue, cell_colors_mins_queue, ready_adapt_queue, plot_all_signals 
             new_loc_marker_colors = []
             for i in range(4):
                 loc_marker_signal, cell_boundaries = get_localization_signal_from_imgseq(image_sequence, i, config.target_channel, config.slm_W, config.slm_H, config.N, config.buffer_space, config.localization_N, config.max_cells_W, config.max_cells_H)
-                with open(f"{config.trial_materials_path}/signal_pkls/seq{last_disp_seq_num}_loc{i}.pkl", "wb") as pklfile:
+                with open(f"{config.session_output_path}/signal_pkls/seq{last_disp_seq_num}_loc{i}.pkl", "wb") as pklfile:
                     pickle.dump(loc_marker_signal, pklfile)
         
                 off_marker_bgr, on_marker_bgr = get_on_off_cell_val_from_cell_signal(loc_marker_signal, image_sequence, cell_boundaries) #output_name = f"seq{last_disp_seq_num}_r{r}_c{c}_minmax" 

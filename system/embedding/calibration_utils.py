@@ -142,9 +142,6 @@ def detect_heatmap_cells(heatmap, density_diameter = 0, density_threshold = 0.00
             cv2.imshow('Dilate + Eroded', th)
             cv2.waitKey(0)
     
-    # START FOR PAPER #
-    cv2.imwrite("binarized_heatmap.png", th)
-    # END FOR PAPER #
 
     #detect blobs
     contours, hierarchy = cv2.findContours(th, 1, 2)
@@ -166,11 +163,6 @@ def detect_heatmap_cells(heatmap, density_diameter = 0, density_threshold = 0.00
         contour_areas.append(contour_area)
         contour_centers.append(contour_center)
 
-        # START FOR PAPER #
-        th_vis = cv2.drawContours(th_vis, [cnt], -1, (0, 255, 0), 4)
-        vis_img = cv2.rectangle(vis_img, (x, y), (x+w, y+h), (0, 255, 0), 4)
-        vis_img = cv2.circle(vis_img, contour_center, 4, (0, 255, 0), -1)
-        # END FOR PAPER #
 
         if display:
             vis_img = cv2.drawContours(vis_img, [cnt], -1, (0,255,0), 1)
@@ -182,11 +174,6 @@ def detect_heatmap_cells(heatmap, density_diameter = 0, density_threshold = 0.00
 
             th_vis = cv2.drawContours(th_vis, [cnt], -1, (0,255,0), 2)
             # th_vis = cv2.rectangle(th_vis, (x, y), (x+w, y+h), (0, 0, 255), 2)
-
-    # START FOR PAPER #
-    cv2.imwrite("contour_detection.png", th_vis)
-    cv2.imwrite("contour_detection_rectangles.png", vis_img)
-    # END FOR PAPER #
 
 
     if display:
@@ -301,16 +288,6 @@ def detect_heatmap_cells(heatmap, density_diameter = 0, density_threshold = 0.00
     candidate_indices = sorted_indices[:4]
     filtered_contour_centers = list(contour_centers[candidate_indices])
     filtered_contour_bboxes = list(contour_bboxes[candidate_indices])
-
-    # START FOR PAPER #
-    vis_img = cv2.cvtColor(heatmap, cv2.COLOR_GRAY2BGR)
-    for i in range(len(filtered_contour_bboxes)):
-        bbox = filtered_contour_bboxes[i]
-        cv2.rectangle(vis_img, (bbox[0], bbox[1]), (bbox[0]+bbox[2], bbox[1]+bbox[3]), (0, 255, 0), 4)
-        cv2.circle(vis_img, filtered_contour_centers[i], 4, (0, 255, 0), -1)
-    cv2.imwrite("filtered_contours.png", vis_img)
-    # END FOR PAPER #
-
 
     if display:
         vis_img = cv2.cvtColor(heatmap, cv2.COLOR_GRAY2BGR)

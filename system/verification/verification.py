@@ -20,14 +20,14 @@ import config
 from digest_extraction import VideoDigestExtractor
 from decoding_utils import loadVideo, get_homography, get_loc_marker_center, valid_r_c, get_nonloc_cell_signal_from_imgseq, butter_bandpass_filter
 from decode_sequence import decode_sequence
-from bitstring_utils import bytes_to_bitstring
+from bitstring_utils import bytes_to_bitstring, bitstring_to_bytes
 from rp_lsh import hamming
 sys.path.append('../embedding/')
 from calibration_utils import  get_user_points, detect_heatmap_cells, order_calibration_code_corners
 from psk_encode_minimal import create_sample_frame
 
 
-def vis_portion(i, main_sync_signal, bp_main_pred_interwin, plot_title = None, display = False, save_path = None):
+def vis_window_sync_signal(i, main_sync_signal, bp_main_pred_interwin, plot_title = None, display = False, save_path = None):
     fig, axes = plt.subplots(2, tight_layout=True, figsize = (12, 6))
     axes[0].plot(main_sync_signal)
     if i == len(bp_main_pred_interwin) - 1:
@@ -72,14 +72,10 @@ def detect_interwin_frames(img_seq, fps, plot_title = None, display = False, sav
         for c in range(config.max_cells_W): 
             if not valid_r_c(r, c, config.max_cells_W, config.max_cells_H, config.localization_N) or f"{r}-{c}" in config.reserved_localization_cells:
                 continue
-            if (r == 0 or r == config.max_cells_H - 1 or c == 0 or c == config.max_cells_W - 1): #this a border cell, and not in reserved localization cells, so must be a channel pilot
+            if (r == 0 or r == config.max_cells_H - 1 or c == 0 or c == config.max_cells_W - 1): # this a border cell, and not in reserved localization cells, so must be a sync cell
                 cell_signal = get_nonloc_cell_signal_from_imgseq(img_seq, r, c)
                 all_sync_signals.append(cell_signal)
-
-    # set signal processing parameters
-    config.interwin_upper_env_rollingmax_n = 9 
-    config.interwin_upper_env_rollingavg_n = 9
-   
+        
     # use average of all separate sync cell signals as one main sync  signal
     all_sync_signals = np.array(all_sync_signals)
     main_sync_signal = np.mean(np.array(all_sync_signals), axis = 0)
@@ -108,6 +104,7 @@ def detect_interwin_frames(img_seq, fps, plot_title = None, display = False, sav
     bp_main_pred_interwin, _ = find_peaks(-1 * pos_env, distance = config.min_interwin_time * fps)
 
     if plot_title:
+        print("Plotting interwindow detection results...")
         fig, axes = plt.subplots(2, tight_layout=True, figsize=(12, 6))
         plt.suptitle(f"{plot_title}\nAveraged Sync Cell")
         axes[0].set_title("Raw Signal")
@@ -124,18 +121,31 @@ def detect_interwin_frames(img_seq, fps, plot_title = None, display = False, sav
             fig.savefig(save_path)
         
         plt.close()
-    
-        for i in range(len(bp_main_pred_interwin)):
-            vis_portion(i, main_sync_signal, bp_main_pred_interwin, display = display)
+
+        # detailed per-window sync signal visualization, uncomment if desired for debugging
+        # for i in range(len(bp_main_pred_interwin)):
+        #     vis_window_sync_signal(i, main_sync_signal, bp_main_pred_interwin, display = display)
         
     return bp_main_pred_interwin, main_sync_signal
-  
-def extract_payload_components(payload):
-    enc_digest = payload[:config.digest_size]
-    tag = payload[config.digest_size:config.digest_size + config.tag_size]
-    return enc_digest, tag
 
-def extract_digest_components(digest):
+
+def get_digest_from_payload(payload):
+    """
+    Given payload, extract digest and return it, along with decision whether it passed the checksum, i.e., HMAC
+    """
+    digest = payload[:config.digest_size]
+    tag = payload[config.digest_size:config.digest_size + config.tag_size * 8]
+  
+    digest_bytes = bitstring_to_bytes(digest)
+    h = hmac.new(config.key, digest_bytes, hashlib.sha1)
+    comp_tag = h.digest()[:config.tag_size]
+    comp_tag_bits = bytes_to_bitstring(comp_tag)
+
+    if comp_tag_bits != tag:
+        pass_checksum = False
+    else:
+        pass_checksum = True
+
     bin_seq_num = digest[:config.bin_seq_num_size]
 
     id_feat_hash_half = digest[config.bin_seq_num_size:config.bin_seq_num_size + config.identity_hash_k // 2]
@@ -144,26 +154,7 @@ def extract_digest_components(digest):
 
     unit_id = digest[config.bin_seq_num_size + config.identity_hash_k // 2 + config.dynamic_hash_k:config.bin_seq_num_size + config.identity_hash_k // 2 + config.dynamic_hash_k + config.unit_id_size]
     date_ordinal = digest[-config.date_ordinal_size:]
-
-    return digest, bin_seq_num, id_feat_hash_half, dynamic_feat_hash, unit_id, date_ordinal
-
-
-def get_digest_from_payload(payload):
-    """
-    Given payload, extract digest and return it, along with decision whether it passed the checksum, i.e., HMAC
-    """
-    digest, tag = extract_payload_components(payload)
-
-    h = hmac.new(config.aes_key, digest, hashlib.sha1)
-    comp_tag = h.digest()[:config.tag_size]
-    comp_tag_bits = bytes_to_bitstring(comp_tag)
-    if comp_tag_bits != tag:
-        pass_checksum = False
-    else:
-        pass_checksum = True
-
-    digest, bin_seq_num, id_feat_hash_half, dynamic_feat_hash, unit_id, date_ordinal = extract_digest_components(digest)
-    
+   
     return digest, bin_seq_num, id_feat_hash_half, dynamic_feat_hash, pass_checksum
 
     
@@ -186,7 +177,7 @@ def generate_localization_reference_corners(display = False):
         print("Unsupported localization cell type!")
 
 
-def localize(video_path, heatmap_settings, force_calc_homography = False, output_path_prefix = "", manually_approve = False, display_loc = False):
+def localize(video_path, heatmap_settings, output_path = "", force_calc_homography = False, manually_approve = False, display_loc = False):
     """
     Search video for localization corners and calculate homography
     """
@@ -194,14 +185,10 @@ def localize(video_path, heatmap_settings, force_calc_homography = False, output
     if not os.path.exists(video_path):
         print(f"ERROR: Can't find video file at {video_path}")
         return
-    
-    vid_name = video_path.split("/")[-1].split(".")[0]
-    output_path = f"{output_path_prefix}{vid_name}"
-    os.makedirs(output_path, exist_ok = True)
-
-    heatmap_path = f"{output_path}/{vid_name}_heatmap.png"
-    hom_path = f"{output_path}/{vid_name}_homography_final.pkl"
-
+        
+    heatmap_path = f"{output_path}/heatmap.png"
+    hom_path = f"{output_path}/homography.pkl"
+  
     if not os.path.exists(hom_path) or force_calc_homography:
         if os.path.exists(heatmap_path):
             heatmap = cv2.imread(heatmap_path, cv2.IMREAD_GRAYSCALE)
@@ -226,7 +213,6 @@ def localize(video_path, heatmap_settings, force_calc_homography = False, output
 
         corner_detection_start = time.time()
         corner_centers, corner_bboxes = detect_heatmap_cells(heatmap, density_diameter = heatmap_settings["density_diameter"], density_threshold  = heatmap_settings["density_threshold"], otsu_inc = heatmap_settings["otsu_inc"],  erode = heatmap_settings["erode"], area_threshold = heatmap_settings["area_threshold"], blurthensharp = heatmap_settings["blurthensharp"], kernel_dim = heatmap_settings["kernel_dim"], min_squareness = heatmap_settings["min_squareness"], display = display_loc)
-
         
         #get source corners to use for homography
         inferred_corner_stuff = order_calibration_code_corners(corner_centers, heatmap, slope_epsilon = heatmap_settings["slope_epsilon"], display = False)
@@ -255,7 +241,7 @@ def localize(video_path, heatmap_settings, force_calc_homography = False, output
         else:
             return None
                     
-        #perform homography between heatmap and a reference for visualization
+        # perform homography between heatmap and a reference for visualization
         try:
             homography_start = time.time()
             _, reference_corner_centers = generate_localization_reference_corners(display = False)
@@ -273,19 +259,19 @@ def localize(video_path, heatmap_settings, force_calc_homography = False, output
         if Hom is None:
             print("Invalid homography (cv2.findHomography returned None).")
             return None
+
+        with open(f"{output_path}/homography.pkl", "wb") as pklfile:
+            pickle.dump(Hom, pklfile)
     else:
-        print("LOADING HOMOGRAPHY")
+        print(f"Loading existing homography from {hom_path}...")
         Hom = pickle.load(open(hom_path, "rb"))
     
     return Hom
     
 
-def recover_digests(video_name, img_seq, fps, main_sync_signal, pred_interwin_markers, trial_materials_path, force_rec_digests = False,  output_path_prefix = "", display_sequences = False):
-    
-    vid_name = video_name.split("/")[-1].split(".")[0]
-    output_path = f"{output_path_prefix}{vid_name}"
-   
-    rec_digests_path = f"{output_path_prefix}{vid_name}/recovered_digest_components_final.pkl"
+def recover_digests(video_name, img_seq, fps, main_sync_signal, pred_interwin_markers, force_rec_digests = False,  output_path = "", display_sequences = False):
+       
+    rec_digests_path = f"{output_path}/recovered_digest_components.pkl"
   
     if os.path.exists(rec_digests_path) and not force_rec_digests:
         with open(rec_digests_path, "rb") as pkfile:
@@ -295,7 +281,6 @@ def recover_digests(video_name, img_seq, fps, main_sync_signal, pred_interwin_ma
         
         start_interwin_pred_marker = 0
         start_seq = 0
-
 
         # decode each window
         start_digest_recovery = time.time()
@@ -316,15 +301,14 @@ def recover_digests(video_name, img_seq, fps, main_sync_signal, pred_interwin_ma
             else:
                 this_img_seq = img_seq[pred_interwin_markers[curr_marker_index]:pred_interwin_markers[curr_marker_index + 1], : , :, :]
                 markers_by_seq[seq_num] = [pred_interwin_markers[curr_marker_index], pred_interwin_markers[curr_marker_index + 1]]
-        
-            gts = None
-                
-            tot_hard_pred, tot_probs, tot_gt, _ ,  _, _ = decode_sequence(this_img_seq, fps, display = display_sequences, gts = gts)
+                        
+            tot_hard_pred, tot_probs, _, _ ,  _, _ = decode_sequence(this_img_seq, fps, display = display_sequences)
             
             # error correct
             correctable_payload = True
             try:
                 pred_payload , pred_previterbi_encoded, correctable_payload = config.error_corrector.decode_payload(tot_probs[:config.viterbi_payload_size])
+                pred_payload = pred_payload[:config.payload_size]
             except Exception as e:
                 print(f"Unrecognizable error recovering encountered Seq {seq_num}. Reported error: {e}.")
                 correctable_payload = False
@@ -362,19 +346,21 @@ def recover_digests(video_name, img_seq, fps, main_sync_signal, pred_interwin_ma
         f.write(f"Digest recovery: {digest_recovery_time},{len(digest_components)} windows\n")
         f.close()
 
+              
+        with open(rec_digests_path, "wb") as pkfile:
+            pickle.dump(digest_components, pkfile)
+            pickle.dump(markers_by_seq, pkfile)
+
+
     return digest_components, markers_by_seq
 
-def get_interwin_frames(video_name, video_path, img_seq, fps, Hom, invis = False, force_pred_interwin = False, extension = ".mp4", display =  False,  output_path_prefix = ""):
-    
-    vid_name = video_name.split("/")[-1].split(".")[0]
-    output_path = f"{output_path_prefix}{vid_name}"
-
-    pred_interwin_markers_path = f"{output_path}/pred_interwin_markers_final.pkl"
+def get_interwin_frames(video_path, img_seq, fps, output_path = "", force_pred_interwin = False,  display =  False):
+        
+    pred_interwin_markers_path = f"{output_path}/pred_interwin_markers.pkl"
     if not os.path.exists(pred_interwin_markers_path) or force_pred_interwin:
         start_win_pred = time.time()
-
         # predict window starts/end frames
-        pred_interwin_markers, main_sync_signal = detect_interwin_frames(img_seq, fps, display = display, plot_title = "Interwin Preds", save_path = f"{output_path_prefix}{vid_name}/interwins.png") 
+        pred_interwin_markers, main_sync_signal = detect_interwin_frames(img_seq, fps, display = display, plot_title = "Interwin Preds", save_path = f"{output_path}/interwins.png") 
         end_win_pred = time.time()
         win_pred_time = end_win_pred - start_win_pred
         f = open(f"{output_path}/timing.txt", "a")
@@ -385,7 +371,10 @@ def get_interwin_frames(video_name, video_path, img_seq, fps, Hom, invis = False
         cap.release()
         f.write(f"Window prediction: {win_pred_time},{duration} second video\n")
         f.close()
-        
+        with open(f"{output_path}/pred_interwin_markers.pkl", "wb") as f:
+            pickle.dump(pred_interwin_markers, f)
+            pickle.dump(main_sync_signal, f)
+
     else:
         with open(pred_interwin_markers_path, "rb") as f:
             pred_interwin_markers = pickle.load(f)
@@ -452,11 +441,9 @@ def is_valid_digest_set(digest_components, id_feats_required = True, markers_by_
 
     
 def verify(video_name, heatmap_settings, manually_approve_corners = False, display_loc = False,
-            trial_materials_path = None,
-            id_feats_required = True,
-            output_path_prefix = "", 
+            output_path = "", 
             force_calc_homography = False, force_pred_interwin = False, force_rec_digests = False,
-            display_interwin = False, display_sequences = False, invis = True, extension = ".mp4"):
+            display_interwin = False, display_sequences = False, extension = ".mp4"):
     """
     Verify a video stored at video_name+extension
 
@@ -467,14 +454,13 @@ def verify(video_name, heatmap_settings, manually_approve_corners = False, displ
         display_loc (bool): Whether to display localization
     """
     
-
-    video_path = video_name + extension
+    video_path = video_name + extension    
     print(Fore.BLUE + f"------------------------------- VERIFYING {video_path} -------------------------------" + Style.RESET_ALL)
-        
+    
+    # make sure video exists at video_path
     if not os.path.exists(video_path):
         print(Fore.RED + f"Can't find video file at {video_path}" + Style.RESET_ALL)
         return
-
     try:
         print("Opening video...")
         cap = cv2.VideoCapture(video_path)
@@ -485,137 +471,47 @@ def verify(video_name, heatmap_settings, manually_approve_corners = False, displ
     except:
         print(f"ERROR: Can't open video file at {video_path}")
         return
-
-
-    vid_name = video_path.split("/")[-1].split(".")[0]
-    output_path = f"{output_path_prefix}{vid_name}"
-     
-    best_hom = None
-    best_pred_interwin_markers = None
-    best_main_sync_signal = None
-    best_digest_components = None
-    best_markers_by_seq = None
-    selected_hom_num = None
-    hom_num = 0
-    final_hom_selected = False
-    hom_path = f"{output_path}/{vid_name}_homography_final.pkl"
-    if os.path.exists(hom_path):
-        print("HOM EXISTS")
-        final_hom_selected = True
-    for otsu_num, otsu_inc in enumerate(heatmap_settings["otsu_inc"]):
-        for area_num, area_threshold in enumerate(heatmap_settings["area_threshold"]):
-            for min_squareness_num, min_squareness in enumerate(heatmap_settings["min_squareness"]):
-                print(f"Obtaining homography with otsu inc = {otsu_inc} ({otsu_num + 1}/{len(heatmap_settings['otsu_inc'])}), area threshold = {area_threshold} ({area_num}/{len(heatmap_settings['area_threshold'])}), min squareness = {min_squareness} ({min_squareness_num}/{len(heatmap_settings['min_squareness'])}).")
-               
-                # localize
-                print("Getting homography...")
-                this_heatmap_settings = heatmap_settings.copy()
-                this_heatmap_settings["otsu_inc"] = otsu_inc
-                this_heatmap_settings["area_threshold"] = area_threshold
-                this_heatmap_settings["min_squareness"] = min_squareness
-                Hom = localize(video_path, this_heatmap_settings, force_calc_homography = force_calc_homography, output_path_prefix = output_path_prefix, display_loc = display_loc, manually_approve = manually_approve_corners)
-                if Hom is None:
-                    continue
-
-                # load video
-                print("Loading video...")
-                start_load = time.time()
-                img_seq, fps = loadVideo(video_path, colorspace = config.colorspace, Hom = Hom)
-                end_load = time.time()
-                f = open(f"{output_path}/timing.txt", "a")
-                f.write(f"Load video: {end_load - start_load}\n")
-                f.close()
-
-                # get interwin predictions
-                print("Predicting interwindow frames...")
-                pred_interwin_markers, main_sync_signal = get_interwin_frames(vid_name, video_path, img_seq, fps, Hom, invis = invis, force_pred_interwin = force_pred_interwin, extension = extension, display = display_interwin, output_path_prefix = output_path_prefix)
-
-                # recover digests
-                print("Recovering digests...")
-                digest_components, markers_by_seq = recover_digests(video_name, img_seq, fps, main_sync_signal, pred_interwin_markers, trial_materials_path, force_rec_digests = force_rec_digests, output_path_prefix = output_path_prefix, display_sequences = display_sequences)
-                
-                # below num_frames and markers_by_seq things only relevant for copied digests, remove after experiments done
-                cap = cv2.VideoCapture(video_path)
-                total_num_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-                validity = is_valid_digest_set(digest_components, id_feats_required = id_feats_required)
-                if validity:
-                    print(Fore.GREEN + "Valid digest set" + Style.RESET_ALL)
-                else:
-                    print(Fore.RED + "Invalid digest set" + Style.RESET_ALL)
-          
-                if validity: # don't bother with others, this homography was solid
-                    best_hom = Hom
-                    best_digest_components = digest_components
-                    best_markers_by_seq = markers_by_seq
-                    best_pred_interwin_markers = pred_interwin_markers
-                    best_main_sync_signal = main_sync_signal
-                    selected_hom_num = hom_num
-                    selected_hom_num = hom_num
-                    final_hom_selected = True
-                    break
-
-                if final_hom_selected:
-                    break
-                
-                hom_num += 1
-
-            if final_hom_selected:
-                break
-
-        if final_hom_selected:
-            break
-
-    if best_hom is None:
-        print(Fore.RED + "Failed to localize" + Style.RESET_ALL)
-        f = open(f"{output_path}/outcome.csv", "w")
-        f.write("Failed in localization")
-        f.close()      
-        return 
     
-    # save the heatmap settings and chosen ones, only if the homography was generated during this run, not just loaded from existing
-    if not os.path.exists(hom_path):
-        with open(f"{output_path}/heatmap_settings.pkl", "wb") as f:
-            pickle.dump(heatmap_settings, f)
-            pickle.dump(this_heatmap_settings, f)
+    # create output directory if it doesn't exist
+    os.makedirs(output_path, exist_ok=True)
+    
+    # localize
+    print("Getting homography...")
+    Hom = localize(video_path, heatmap_settings, force_calc_homography = force_calc_homography, output_path = output_path, display_loc = display_loc, manually_approve = manually_approve_corners)
+    if Hom is None:
+        print("Couldn't obtain homography.")
+        return
 
-    f = open(f"{output_path}/outcome.csv", "w")
-    f.write(f"Selected hom: {selected_hom_num}\n")
+    # load video for interwindow prediction and digest recovery
+    print("Loading video frames...")
+    start_load = time.time()
+    img_seq, fps = loadVideo(video_path, colorspace = config.colorspace, Hom = Hom)
+    end_load = time.time()
+    f = open(f"{output_path}/timing.txt", "a")
+    f.write(f"Load video: {end_load - start_load}\n")
     f.close()
-    
-    # save the data corresponding to the best Hom as the final ones
-    with open(f"{output_path}/{vid_name}_homography_final.pkl", "wb") as pklfile:
-        pickle.dump(best_hom, pklfile)
-    
-    with open(f"{output_path}/pred_interwin_markers_final.pkl", "wb") as f:
-        pickle.dump(best_pred_interwin_markers, f)
-        pickle.dump(best_main_sync_signal, f)
 
-    with open(f"{output_path_prefix}{vid_name}/recovered_digest_components_final.pkl", "wb") as pkfile:
-        pickle.dump(best_digest_components, pkfile)
-        pickle.dump(best_markers_by_seq, pkfile)
- 
+    # get interwin predictions
+    print("Predicting interwindow frames...")
+    pred_interwin_markers, main_sync_signal = get_interwin_frames(video_path, img_seq, fps, force_pred_interwin = force_pred_interwin, display = display_interwin, output_path = output_path)
 
+    # recover digests
+    print("Recovering digests...")
+    digest_components, markers_by_seq = recover_digests(video_name, img_seq, fps, main_sync_signal, pred_interwin_markers, force_rec_digests = force_rec_digests, output_path = output_path, display_sequences = display_sequences)
+  
     #initialize video digest extractor
-    print("Verifying all sequences...")
-    print("Initializing video digest extractor...")
+    print("Verifying video windows against recovered digests...")
     vid_digest_extractor = VideoDigestExtractor(video_path)
-    print("Done initalizing video digest extractor.")
 
     verifiable_seqs = sorted(list(markers_by_seq.keys()))[:-1]
    
     id_dists = []
     dyn_dists = []
     num_verified_seqs = 0
-    first_time_id = True # remove after experiments done
     for i, ver_seq_num in enumerate(verifiable_seqs):
         
-        print(Fore.MAGENTA + f"----------- VERIFYING ENCOUNTERED VERIFIABLE SEQ {ver_seq_num} -----------" + Style.RESET_ALL)
+        print(Fore.MAGENTA + f"----------- VERIFYING WINDOW {ver_seq_num} -----------" + Style.RESET_ALL)
         reference_digest = digest_components[i +1] # the digest embedded in the next window, whose contents we will use to verify this window's video
-    
-        # if i + 1 >= len(digest_components): # what is this for??
-        #     print("Embedded digest cut off in video. Skipping verification")
-        #     print("------------------------------------------------")
-        #     continue
 
         if reference_digest[0] == 0:
             print("Corrupt sequence digest. Skipping verification")
@@ -627,27 +523,12 @@ def verify(video_name, heatmap_settings, manually_approve_corners = False, displ
         rec_dynamic_hash = reference_digest[3]
         print(f"Using digest from Seq: {rec_seq_num}.")
 
-       
-        
         start_frame, end_frame = markers_by_seq[ver_seq_num]
 
         if end_frame - start_frame < config.video_window_duration * fps * 0.9: # add some tolerance with 0.9, otherwise valid windows are discounted
             print(f"Window too short (should be at least {config.video_window_duration * fps * 0.9} frames, is {end_frame - start_frame} frames long). Skipping.")
             continue
-   
-        # below only relevant for copied digests, remove after experiments done
-        if end_frame > total_num_frames:
-            print("Window extends beyond video. Skipping.")
-            continue
-        
-        # below for experiments only
-        # for the very first iteration, set the rec_id_hash to any valid ID hash from the copied digest components
-        if first_time_id == True:
-            print(Fore.YELLOW + "ID hash not recovered. Using any valid ID hash from copied digest components." + Style.RESET_ALL)
-            rec_id_hash = get_any_id_hash(digest_components)
-            print(f"Using ID hash: {rec_id_hash}")
-            first_time_id = False
-
+  
         if rec_id_hash is None:
             print("ID hash not recovered.")
             id_dists.append(-1)
@@ -667,12 +548,13 @@ def verify(video_name, heatmap_settings, manually_approve_corners = False, displ
             id_dists.append(id_hash_dist)
 
     
-        if end_frame - start_frame > config.video_window_duration * fps * 1.05: # don't use excessively large frames
+        if end_frame - start_frame > config.video_window_duration * fps * 1.05: # don't use excessively large windows
             start_frame = end_frame - int(config.video_window_duration * fps * 1.05)
 
         start_dyn_feat = time.time()
+
         # TODO: direct comparison
-        ver_dynamic_hash_dist, ver_optimal_start_frame = get_dynamic_hash_dist(video_path, start_frame, end_frame, rec_dynamic_hash, verification_dir = f"{output_path_prefix}{vid_name}")
+        ver_dynamic_hash_dist, ver_optimal_start_frame = get_dynamic_hash_dist(video_path, start_frame, end_frame, rec_dynamic_hash, verification_dir = output_path)
         end_dyn_feat = time.time()
         dyn_feat_time = end_dyn_feat - start_dyn_feat
         f = open(f"{output_path}/timing.txt", "a")
@@ -704,25 +586,23 @@ def verify(video_name, heatmap_settings, manually_approve_corners = False, displ
     print("------------------------------------------------" + Style.RESET_ALL)
 
 
-otsu_incs = [10, -30, -50, 0, -20, 20, -10, 30, -40, 40]
+# otsu_incs = [10, -30, -50, 0, -20, 20, -10, 30, -40, 40]
 
 heatmap_settings = {
     "erode": 1,
     "kernel_dim": 5,
     "blurthensharp": False,
-    "area_threshold": [[1000, 25000], [200, 25000], [100, 50000]],
-    "min_squareness": [0.6, 0.8, None],
-    "otsu_inc": otsu_incs,
+    "area_threshold": [1000, 25000],
+    "min_squareness": 0.6,
+    "otsu_inc": 10,
     "density_diameter": 200,
     "density_threshold": 280,
     "frame_range": [400, 800],#None,
     "slope_epsilon" : 0.1
 }
   
-video_name = "/media/lex/E380-1E91/Deepfake/End_To_End/deepfakes_may24/colman/talklip/googlepixel/p4_df"
+video_name = "/Users/hadleigh/verilight_test2"
 verify(video_name, heatmap_settings, manually_approve_corners = True, display_loc = True,
-        trial_materials_path = None,
-        id_feats_required = True,
-        output_path_prefix = "./",
+        output_path = "verilight_test2_output2",
         force_calc_homography = False, force_pred_interwin = False, force_rec_digests = False,
-        display_interwin = True, display_sequences = True, invis = False, extension = ".mp4")
+        display_interwin = False, display_sequences = False,  extension = ".MOV")

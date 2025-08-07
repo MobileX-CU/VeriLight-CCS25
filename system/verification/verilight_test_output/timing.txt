@@ -1,0 +1,72 @@
+Heatmap extraction: /Users/hadleigh/verilight_test.MOV,15.358201026916504,400 frames
+Corner detection: 4.037211894989014
+Homography: 1.8557639122009277,w/ display: True
+Load video: 13.091231107711792
+Corner detection: 3.4999990463256836
+Homography: 1.1320240497589111,w/ display: True
+Load video: 13.03429388999939
+Corner detection: 3.214073896408081
+Homography: 0.12608599662780762,w/ display: True
+Load video: 13.00354814529419
+Corner detection: 2.659510850906372
+Homography: 1.140373945236206,w/ display: True
+Load video: 5.430454969406128
+Corner detection: 2.190310001373291
+Homography: 2.2668001651763916,w/ display: True
+Load video: 5.434293985366821
+Corner detection: 1.8812589645385742
+Homography: 0.1523420810699463,w/ display: True
+Load video: 5.43056321144104
+Window prediction: 19.162796020507812,18.408333333333335 second video
+Corner detection: 6.872296333312988
+Homography: 0.08446097373962402,w/ display: True
+Load video: 5.418788194656372
+Corner detection: 2.210542678833008
+Homography: 0.11267590522766113,w/ display: True
+Load video: 5.527272939682007
+Window prediction: 18.560732126235962,18.408333333333335 second video
+Corner detection: 2.1083638668060303
+Homography: 0.08720827102661133,w/ display: True
+Load video: 5.418690204620361
+Corner detection: 2.4333980083465576
+Homography: 1.1975181102752686,w/ display: True
+Load video: 5.408601999282837
+Corner detection: 1.6966009140014648
+Homography: 0.08722782135009766,w/ display: True
+Load video: 5.434057950973511
+Corner detection: 5.180609226226807
+Homography: 0.13776612281799316,w/ display: True
+Load video: 5.3679399490356445
+Corner detection: 2.300071954727173
+Homography: 0.09419488906860352,w/ display: True
+Load video: 5.458953380584717
+Corner detection: 2.209047794342041
+Homography: 19.76484489440918,w/ display: True
+Load video: 5.479398250579834
+Heatmap extraction: /Users/hadleigh/verilight_test.MOV,6.2886857986450195,400 frames
+Corner detection: 7.797069072723389
+Homography: 0.09073615074157715,w/ display: True
+Load video: 5.430202007293701
+Corner detection: 1.958940029144287
+Homography: 1.4384839534759521,w/ display: True
+Load video: 5.458424806594849
+Window prediction: 29.852927923202515,18.408333333333335 second video
+Load video: 5.503373861312866
+Load video: 5.487426042556763
+Load video: 5.4089579582214355
+Load video: 5.4193408489227295
+Load video: 5.457015037536621
+Load video: 5.390516042709351
+Load video: 5.4164369106292725
+Load video: 5.434007883071899
+Load video: 5.449383020401001
+Load video: 5.608944892883301
+Load video: 5.455709934234619
+Load video: 8.97723388671875
+Load video: 7.438535213470459
+Load video: 7.43478798866272
+Load video: 7.466788053512573
+Load video: 7.4797751903533936
+Load video: 7.42841100692749
+Digest recovery: 73.1203761100769,4 windows
+Load video: 7.44911789894104

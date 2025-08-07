@@ -135,7 +135,7 @@ if __name__ == '__main__':
     # create mask for full frame creation
     mask, rightmost, bottommost = create_mask(fade = config.fade)
 
-    NUM_FRAMES = config.barcode_window_duration * config.localization_frequency * 2
+    NUM_FRAMES = config.embedding_window_duration * config.localization_frequency * 2
    
     # start display thread
     disp_signal_queue = Queue()
