@@ -7,9 +7,12 @@ import cv2
 import sys
 import matplotlib.colors as mcolors
 import matplotlib.text as mtext
+import matplotlib.patches as mpatch
+import pickle
 
 sys.path.append('../common/')
 import config
+from signal_utils import single_feature_signal_processing # for visualizing at video FPS
 
 #####################################
 #####   PLOTTING COLORS/LABELS  #####
@@ -298,3 +301,199 @@ class LegendTitle(object):
         title = mtext.Text(x0, y0, r'\underline{' + orig_handle + '}', usetex=True, **self.text_props)
         handlebox.add_artist(title)
         return title
+
+
+
+def visualize_features(video_path, output_path, fps, boundaries_by_seq, verifiable_seqs,
+                        id_hashes, dyn_hashes, id_dists, dyn_dist, rec_seq_nums, rec_id_hashes, rec_dynamic_hashes):
+    target_vis = [0, 1, 14, 15]
+    landmark_dist_idxs = [f for f in range(len(target_vis)) if type(config.target_features[target_vis[f]]) == str]
+    landmark_dist_colors = np.array(colors)[landmark_dist_idxs]
+    target_distances = [config.target_features[target_vis[f]] for f in landmark_dist_idxs]
+    blendshape_idxs = [f for f in range(len(target_vis)) if type(config.target_features[target_vis[f]]) == int]
+    target_blendshape_colors = np.array(colors)[blendshape_idxs].tolist()
+    target_blendshapes = [config.target_features[target_vis[f]] for f in blendshape_idxs]
+    target_blendshape_names = [blendshape_names[config.target_features[target_vis[f]]] for f in blendshape_idxs]
+
+    # raw MP results, for annotating the frames
+    with open(f"{output_path}/video_signals.pkl", "rb") as pklfile:
+        dynamic_features = pickle.load(pklfile)
+        poses = pickle.load(pklfile)
+        face_bboxes = pickle.load(pklfile)
+        raw_detection_results = pickle.load(pklfile)
+
+    # opt_end_frame = opt_start_frame + int(config.video_window_duration*fps+1)
+    input_cap = cv2.VideoCapture(video_path)
+    # input_cap.set(cv2.CAP_PROP_POS_FRAMES, opt_start_frame)
+    height = int(input_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    width = int(input_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    bar_graph_size = frame_size = (width, height)
+    out = cv2.VideoWriter(f"{output_path}/visualization.mp4", cv2.VideoWriter_fourcc(*'MP4V'), fps, (width * 2, height * 2))
+    plt.rcParams['font.family'] = 'sans-serif'
+    plt.rcParams['font.sans-serif'] = 'Helvetica'
+    plt.rcParams['font.size'] = 24
+
+    # make raw dynamic features list into a list of signals, one for each. 
+    # unlike the above signals, this is for entire video, not just the current window
+    raw_signals = [[] for i in range(len(config.target_features))]
+    for frame_feats in dynamic_features:
+        for i in range(len(config.target_features)):
+            raw_signals[i].append(frame_feats[i])
+    
+    first_win_start = boundaries_by_seq[verifiable_seqs[0]][0]
+    last_win_end = boundaries_by_seq[verifiable_seqs[-1]][1]
+    curr_win_start, curr_win_end = boundaries_by_seq[verifiable_seqs[0]]
+    curr_seq_idx = 0
+    j = 0
+    while True:
+        ret, frame = input_cap.read()
+        if not ret:
+            break
+        raw_detection_result = raw_detection_results[j]
+        face_bbox = face_bboxes[j]
+        annotated_frame = annotate_frame(frame, face_bbox, raw_detection_result, bar_graph_size = bar_graph_size, frame_size = frame_size, landmark_dists=target_distances, landmark_dist_colors = landmark_dist_colors, draw_mesh = False)
+        curr_frame_blendshape_values_proc = []
+        blendshape_lines = []
+        landmark_lines = []
+        blendshape_labels = []
+        landmark_labels = []
+        for f, s in enumerate(raw_signals):
+            if f not in target_vis:
+                continue
+            proc_s = single_feature_signal_processing(s, resample_signal = False, scaler = "minmax")
+            if type(config.target_features[f]) == int:
+                label = blendshape_names[config.target_features[f]]
+                curr_frame_blendshape_values_proc.append(proc_s[j])
+                linestyle = '--'
+                linewidth = 2
+            else:
+                label = config.target_features[f]
+                linestyle = '-'
+                linewidth = 4
+            [line] = plt.plot(proc_s[:j + 1],  c = colors[f], linewidth = linewidth, linestyle = linestyle) # plot up to current frame within this window's signals
+            if type(config.target_features[f]) == int:
+                blendshape_lines.append(line)
+                blendshape_labels.append(label)
+            else:
+                landmark_lines.append(line)
+                landmark_labels.append(label)
+
+        # signals line plot
+        if j < 50:
+            xrange = (0, 100)
+        else:
+            xrange = (j -  50, j + 50)
+        plt.xlim(xrange)
+        plt.ylim((-0.05, 1))
+        plt.xlabel('Frame Number')
+        plt.title("FaceMesh Signals")
+        plt.legend(['Landmark Distances'] + landmark_lines + ['Blendshapes'] + blendshape_lines, [''] + landmark_labels + [''] + blendshape_labels, 
+                        handler_map={str: LegendTitle({"fontsize" : 24})})
+        # leg = plt.legend(loc='upper right')
+        # for line in leg.get_lines():
+        #     line.set_linewidth(4.0)
+        figure = plt.gcf()
+        figure.set_dpi(100)
+        figure.set_size_inches(0.01*width*2, 0.01*height) 
+        figure.canvas.draw()
+        fig_img = np.array(figure.canvas.buffer_rgba())
+        fig_img = cv2.cvtColor(fig_img, cv2.COLOR_RGBA2BGR)
+        plt.clf()
+
+        # #  blendshape bar graph
+        # bar_width = 1
+        # bar = plt.barh([w*bar_width for w in range(len(target_blendshape_names))], curr_frame_blendshape_values_proc, color = target_blendshape_colors)
+        # plt.yticks([w*bar_width for w in range(len(target_blendshape_names))], target_blendshape_names)
+        # plt.gca().invert_yaxis()
+        # plt.xlabel('Score')
+        # plt.tick_params(axis='x', pad=15)
+        # plt.xlim(0, 1)
+        # plt.title("Face Blendshape Scores")
+        # plt.tight_layout()
+        # plt.subplots_adjust(left=0.15) # prevent ytick labels from being cut off
+        # figure = plt.gcf()
+        # # set output figure size in pixels
+        # # https://stackoverflow.com/questions/332289/how-do-i-change-the-size-of-figures-drawn-with-matplotlib/4306340#4306340
+        # # below assumies dpi=100 
+        # figure.set_dpi(100)
+        # figure.set_size_inches(0.01*width, 0.01*height)
+        # figure.canvas.draw()
+        # bshape_fig_img = np.array(figure.canvas.buffer_rgba())
+        # bshape_fig_img = cv2.cvtColor(bshape_fig_img, cv2.COLOR_RGBA2BGR)
+        # plt.clf()
+
+        # data report
+        fig, ax = plt.subplots()
+        r =  mpatch.Rectangle((2, 13), 8, 2)
+        ax.add_artist(r)
+        rx, ry = r.get_xy()
+        cx = rx + r.get_width() / 2.0
+        cy = ry + r.get_height() / 2.0
+
+        if j > first_win_start and j <= last_win_end:
+            if rec_seq_nums[curr_seq_idx] is not None:
+                ax.annotate(f"Currrent window: {rec_seq_nums[curr_seq_idx] - 1}", (cx, cy), color='w', weight='bold',  ha='center', va='center')
+                max_chars_per_line = 75
+                # divide the id_hash and dyn_hash into a string with max_chars_per_line characters per line and \n between lines in the str
+                if id_hashes[curr_seq_idx] is None:
+                    id_hash_str = None
+                else:
+                    id_hash_lines = [id_hashes[curr_seq_idx][i:i+max_chars_per_line] for i in range(0, len(id_hashes[curr_seq_idx]), max_chars_per_line)]
+                    id_hash_str = "\n".join(id_hash_lines)
+                if rec_id_hashes[curr_seq_idx] is None:
+                    rec_id_hash_str = None
+                else:
+                    rec_id_hash_lines = [rec_id_hashes[curr_seq_idx][i:i+max_chars_per_line] for i in range(0, len(rec_id_hashes[curr_seq_idx]), max_chars_per_line)]
+                    rec_id_hash_str = "\n".join(rec_id_hash_lines)
+                if dyn_hashes[curr_seq_idx] is None:
+                    dyn_hash_str = None
+                else:
+                    dyn_hash_lines = [dyn_hashes[curr_seq_idx][i:i+max_chars_per_line] for i in range(0, len(dyn_hashes[curr_seq_idx]), max_chars_per_line)]
+                    dyn_hash_str = "\n".join(dyn_hash_lines)
+                if rec_dynamic_hashes[curr_seq_idx] is None:
+                    rec_dyn_hash_str = None
+                else:
+                    rec_dyn_hash_lines = [rec_dynamic_hashes[curr_seq_idx][i:i+max_chars_per_line] for i in range(0, len(rec_dynamic_hashes[curr_seq_idx]), max_chars_per_line)]
+                    rec_dyn_hash_str = "\n".join(rec_dyn_hash_lines)
+                ax.annotate(f"Video ID feature hash\n{id_hash_str}", (cx, cy - 2), color='black', weight='bold',  ha='center', va='center')
+                ax.annotate(f"Signature ID feature hash\n{rec_id_hash_str}", (cx, cy - 4), color='black', weight='bold',  ha='center', va='center')
+                ax.annotate(f"Hamming Distance: {id_dists[curr_seq_idx]}", (cx, cy - 5.5), color='green', weight='bold',  ha='center', va='center')
+                
+                ax.annotate(f"Video dynamic feature hash\n{dyn_hash_str}", (cx, cy - 8), color='black', weight='bold',  ha='center', va='center')
+                ax.annotate(f"Signature dynamic feature hash\n{rec_dyn_hash_str}", (cx, cy - 10), color='black', weight='bold',  ha='center', va='center')
+                ax.annotate(f"Hamming Distance: {dyn_dist[curr_seq_idx]}", (cx, cy - 11.5), color='green', weight='bold',  ha='center', va='center')
+        ax.set_xlim((0, 15))
+        ax.set_ylim((0, 15))
+        ax.set_axis_off()
+        ax.set_aspect('equal')
+        figure = plt.gcf()
+        # set output figure size in pixels
+        # https://stackoverflow.com/questions/332289/how-do-i-change-the-size-of-figures-drawn-with-matplotlib/4306340#4306340
+        # below assumies dpi=100 
+        figure.set_dpi(100)
+        figure.set_size_inches(0.01*width, 0.01*height)
+        figure.canvas.draw()
+        data_fig_img = np.array(figure.canvas.buffer_rgba())
+        data_fig_img = cv2.cvtColor(data_fig_img, cv2.COLOR_RGBA2BGR)
+        plt.clf()
+
+        # stack and write
+        out_frame = np.vstack((np.hstack((annotated_frame, data_fig_img)), fig_img)) # if using blendshape bar graph or data img
+        
+        # pad annotated frame to be same width as fig_img
+        # side_pad = (fig_img.shape[1] - annotated_frame.shape[1]) // 2
+        # annotated_frame = cv2.copyMakeBorder(annotated_frame, 0, 0, side_pad, side_pad, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+        # out_frame = np.vstack((annotated_frame, fig_img)) # if using signals line plot only
+        out.write(out_frame)
+
+        j += 1
+        # print(curr_win_start, curr_win_end, curr_seq_idx)
+        if j >= curr_win_end: 
+            curr_seq_idx += 1
+            print(len(rec_seq_nums), curr_seq_idx, len(verifiable_seqs))
+            if curr_seq_idx >= len(rec_seq_nums):
+                break
+            curr_win_start, curr_win_end = boundaries_by_seq[verifiable_seqs[curr_seq_idx]]
+
+    out.release()
+    input_cap.release()

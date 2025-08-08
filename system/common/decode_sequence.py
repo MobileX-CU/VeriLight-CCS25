@@ -232,7 +232,7 @@ def get_overall_sync_blinks(pilot_signal, fps):
         step = int((1/(config.frequency))*fps) # interpeak/intertrough distance
         if pilot_peaks[target_pilot_peak_is][0] < 10: # add to beginning if there appears to be space. Use 10 as a heuristic here.
             # add equally spaces peaks to start until correct number of peaks present or no space to add
-            next_front_peak = pilot_peaks[target_pilot_trough_is][0] - step #initialize
+            next_front_peak = pilot_peaks[target_pilot_peak_is][0] - step
             while num_added_peaks < num_missing_peaks and next_front_peak > 0:
                 added_peaks.append(next_front_peak)
                 next_front_peak -= step

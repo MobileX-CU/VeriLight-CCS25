@@ -66,17 +66,18 @@ def create_dynamic_hash_from_dynamic_features(dynamic_features, dynamic_hash_fam
 
     Returns:
         dynamic_feat_hash (str): The hash of the dynamic features
-        signals (list): The signals for each feature
+        signals (list): The raw signals for each feature
         proc_signals (list): The processed signals for each feature
         concat_processed_signal (list): The concatenated processed signal (i.e., concatenation of all processed signals, zero meaned)
     """
-    #make features into signal(s)
+    # make features into raw signal(s)
     signals = [[] for i in range(len(config.target_features))]
     for frame_feats in dynamic_features:
         for i in range(len(config.target_features)):
             signals[i].append(frame_feats[i])
-    # print("Len signal", len(signals[0]))
-    #interp nans of signal(s), downsample to fixed number of frames per window, and create final concatenated signal
+
+    # interp nans of signal(s), downsample to fixed number of frames per window, and create final concatenated signal 
+    # from these processed signals
     concat_processed_signal = []
     proc_signals = [] # ultimately for visualization purposes
     for signal in signals:
@@ -139,6 +140,7 @@ def create_digest_from_features(dynamic_features, identity_features, feature_seq
         with open(output_path, "wb") as pklfile:
             pickle.dump(img_nums, pklfile)
             pickle.dump(signals, pklfile)
+            pickle.dump(proc_signals, pklfile)
             pickle.dump(concat_processed_signal, pklfile)
             pickle.dump(identity_features, pklfile)
             pickle.dump(dynamic_feat_hash, pklfile)
@@ -158,7 +160,7 @@ def create_digest_from_features(dynamic_features, identity_features, feature_seq
 class IdentityExtractor(object):
     def __init__(self):
         sys.stdout = open(os.devnull, "w")
-        self.extractor = FaceAnalysis(providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+        self.extractor = FaceAnalysis(providers=['MPSExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider'])
         self.extractor.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.5)         
         sys.stdout = sys.__stdout__
 
@@ -175,8 +177,6 @@ class MPExtractor(object):
         #set up initial face detector, if using
         if config.intitial_face_detection == True:
             digest_extraction_log("Initializing face detector", "INFO")
-            #self.face_detector = RetinaFaceDetector("mobile0.25") #other option: "resnet50"
-            #sys.stdout = open(os.devnull, "w")
             if sys.platform == 'linux':
                 self.face_detector = UltraLightFaceDetector("slim", "cuda", 0.7)
             else:
@@ -297,30 +297,26 @@ class MPExtractor(object):
             return feat_vals, initial_face_bbox, detection_result
         
 
-class VideoDigestExtractor(object):
+class VideoFeatureExtractor(object):
     """
-    Class for extracting digests from a video, i.e., offline verification of a video's integrity.
+    Class for extracting digests from a video, i.e., offline verification of a video's integrity
+    or visualization purposes
     """
-    def __init__(self, video_path):
+    def __init__(self, video_path, output_path):
         self.mp_extractor = MPExtractor()
         self.id_extractor = IdentityExtractor()
         self.video_path = video_path
+        self.output_path = output_path
     
     def get_id_features_hash(self, start_frame):
         cap = cv2.VideoCapture(self.video_path)
-        frame_num = 0
-        identity_features = None
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            if not (frame_num >= start_frame):
-                frame_num += 1
-                continue
-            if frame_num == start_frame:
-                identity_features = self.id_extractor.extract(frame)
-                break
-
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame) # set the video to the start frame
+        ret, frame = cap.read()
+        if not ret:
+            identity_features = None
+        else:
+            identity_features = self.id_extractor.extract(frame)
+         
         id_fam = config.id_fam
         id_hash_funcs = config.id_hash_funcs
 
@@ -330,299 +326,54 @@ class VideoDigestExtractor(object):
             id_feat_hash = hash_point(id_fam, id_hash_funcs, identity_features)
         return id_feat_hash, identity_features
 
-    
-    def extract_from_video_slice(self, start_frame, end_frame, seq_num, vis_output_path = None, resample_signal = True, skip_hash = False):
+    def extract_mp_features(self):
         """
-        Given the start and end frame numbers of the target window <seq_num> within the video at <video_path>,
-        extract the digest for this window
+        Originally in /deepfake_detection/system/evaluation/dynamic_features/extract_signals.py
+        Copied here so everything needed for verification is in one place
         """
- 
+
+        signal_pkl_path = f"{self.output_path}/video_signals.pkl"
+        if os.path.exists(signal_pkl_path):
+            # load the MP signals
+            with open(signal_pkl_path, "rb") as pklfile:
+                dynamic_features = pickle.load(pklfile)
+                pose = pickle.load(pklfile)
+                face_bbox = pickle.load(pklfile)
+                raw_detection_results = pickle.load(pklfile)
+            return dynamic_features, pose, face_bbox, raw_detection_results
+
         cap = cv2.VideoCapture(self.video_path)
         frame_num = 0
         dynamic_features = []
-        if vis_output_path:
-            annotated_frames = []
+        pose = []
+        face = []
+        raw_detection_results = []
+
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-            if not (frame_num >= start_frame):
-                frame_num += 1
-                continue
-            if frame_num > end_frame:
-                break
-            if frame_num == start_frame:
-                identity_features = self.id_extractor.extract(frame)
-            frame_feats, face_bbox, detection_result = self.mp_extractor.extract_features(frame)
+
+            frame_feats, face_bbox, detection_result = self.mp_extractor.extract_features(frame, config.target_features)
+            raw_detection_results.append(detection_result)
             dynamic_features.append(frame_feats)
+            try:
+                pose.append(detection_result.facial_transformation_matrixes)
+            except Exception as err:
+                # at some harsh cam angles, transformation matrix cannot be extracted
+                pose.append(np.nan)
+            
+            try:
+                face.append(face_bbox)
+            except Exception as err:
+                face.append(np.nan)
+
             frame_num += 1
 
-            if vis_output_path:
-                frame = annotate_frame(frame, face_bbox, detection_result)    
-                annotated_frames.append(frame)
+        with open(signal_pkl_path, "wb") as pklfile:
+            pickle.dump(dynamic_features, pklfile)
+            pickle.dump(pose, pklfile)
+            pickle.dump(face, pklfile)
+            pickle.dump(raw_detection_results, pklfile)
+        return dynamic_features, pose, face, raw_detection_results
 
-        digest_payload, proc_signals, concat_processed_signal = create_digest_from_features(dynamic_features, identity_features, seq_num, resample_signal = resample_signal, skip_hash=skip_hash)
-        
-        if vis_output_path:
-            self.gen_vis_video(annotated_frames, seq_num, dynamic_features, proc_signals, concat_processed_signal, vis_output_path)
-
-        return digest_payload, proc_signals, concat_processed_signal
-
-    def save_proc_signals(self, proc_signals, output_path = "./"):
-        vid_name = self.video_path.split("/")[-1].split(".")[0]
-        for f, s in enumerate(proc_signals):
-            file = open(f"{vid_name}_proc_signal_{config.target_features[f]}.csv", "w")
-            file.write("frame_num,signal_val\n")
-            for i, val in enumerate(s):
-                file.write(f"{i},{val}\n")
-    
-    def save_raw_signals(self, dynamic_features, output_path = "./"):
-        vid_name = self.video_path.split("/")[-1].split(".")[0]
-        signals = [[] for i in range(len(config.target_features))]
-        # make raw dynamic features list into a list of signals, one for each
-        for frame_feats in dynamic_features:
-            for i in range(len(config.target_features)):
-                signals[i].append(frame_feats[i])
-        for f, s in enumerate(signals):
-            file = open(f"{vid_name}_raw_signal_{config.target_features[f]}.csv", "w")
-            file.write("frame_num,signal_val\n")
-            for i, val in enumerate(s):
-                file.write(f"{i},{val}\n")
-
-    def gen_demo_video(self, frames, dynamic_features, proc_signals, output_path = "demo_content.mp4", signal_type = "raw", include_raw_frames = False):
-        colors = ['#377eb8', "green", "cyan", "red", "orchid", "darkorchid", "crimson", "lime", "fuchsia", "#ff7f00", "#f781bf", "darkcyan", "yellowgreen", "#4daf4a", "cornflowerblue",  "peru"]
-
-        blendshape_names = [
-            "_neutral",
-            "browDownLeft",
-            "browDownRight",
-            "browInnerUp",
-            "browOuterUpLeft",
-            "browOuterUpRight",
-            "cheekPuff",
-            "cheekSquintLeft",
-            "cheekSquintRight",
-            "eyeBlinkLeft",
-            "eyeBlinkRight",
-            "eyeLookDownLeft",
-            "eyeLookDownRight",
-            "eyeLookInLeft",
-            "eyeLookInRight",
-            "eyeLookOutLeft",
-            "eyeLookOutRight",
-            "eyeLookUpLeft",
-            "eyeLookUpRight",
-            "eyeSquintLeft",
-            "eyeSquintRight",
-            "eyeWideLeft",
-            "eyeWideRight",
-            "jawForward",
-            "jawLeft",
-            "jawOpen",
-            "jawRight",
-            "mouthClose",
-            "mouthDimpleLeft",
-            "mouthDimpleRight",
-            "mouthFrownLeft",
-            "mouthFrownRight",
-            "mouthFunnel",
-            "mouthLeft",
-            "mouthLowerDownLeft",
-            "mouthLowerDownRight",
-            "mouthPressLeft",
-            "mouthPressRight",
-            "mouthPucker",
-            "mouthRight",
-            "mouthRollLower",
-            "mouthRollUpper",
-            "mouthShrugLower",
-            "mouthShrugUpper",
-            "mouthSmileLeft",
-            "mouthSmileRight",
-            "mouthStretchLeft",
-            "mouthStretchRight",
-            "mouthUpperUpLeft",
-            "mouthUpperUpRight",
-            "noseSneerLeft",
-            "noseSneerRight"
-        ]
-
-        # width = 1200
-        # height = 600
-        width = 1200
-        height = 240
-        frame_shape =  (frames[0].shape[1], frames[0].shape[0])
-        scaled_frame_shape = (int(frame_shape[0]*height/frame_shape[1]), height)
-        final_output_width = width + scaled_frame_shape[0]
-        if include_raw_frames:
-            out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'MP4V'), 30, (final_output_width, height))
-        else:
-            out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'MP4V'), 30, (width, height))
-
-        if signal_type == "raw":
-            raw_signals = [[] for i in range(len(config.target_features))]
-            max_sig_val = 0
-            min_sig_val = 10000
-            # make raw dynamic features list into a list of signals, one for each
-            for feat_num, frame_feats in enumerate(dynamic_features):
-                for i in range(len(config.target_features)):
-                    raw_signals[i].append(frame_feats[i])
-                    if frame_feats[i] > max_sig_val:
-                        max_sig_val = frame_feats[i]
-                    if frame_feats[i] < min_sig_val:
-                        min_sig_val = frame_feats[i]
-            #process with rolling average 
-            signals = []
-            for r in raw_signals:
-                scaler = MinMaxScaler()
-                r = np.array(r)
-                mask = np.isnan(r)
-                r[mask] = np.interp(np.flatnonzero(mask), np.flatnonzero(~mask), r[~mask]) # fill nans. mostly imporatnt for 60 far, which actually has Nans
-                r = scaler.fit_transform(r.reshape(-1, 1)).reshape(-1) #normalize for visualization
-                r = rolling_average(r, n = 2)
-                signals.append(r)
-        else:
-            signals = proc_signals
-            max_sig_val = np.array(proc_signals).max()
-            min_sig_val = np.array(proc_signals).min()
-        
-        max_sig_val = 1
-        min_sig_val = 0
-        # target_vis = [0, 9, 13] # for original demo video
-        target_vis = [0, 1, 2, 3, 4]
-        for i in range(len(frames)):
-            for f, s in enumerate(signals):
-                if f not in target_vis:
-                    continue
-                if type(config.target_features[f]) == int:
-                    label = blendshape_names[config.target_features[f]]
-                else:
-                    label = config.target_features[f]
-                
-                plt.plot(s[:i + 1], label = label, c = colors[f])
-            
-            if i < 50:
-                xrange = (0, 100)
-            else:
-                xrange = (i - 50, i + 50)
-            plt.xlim(xrange)
-            plt.ylim((min_sig_val - min_sig_val*.1, max_sig_val))
-            leg = plt.legend(loc='upper right', fontsize=(20))
-            for line in leg.get_lines():
-                line.set_linewidth(4.0)
-            figure = plt.gcf()
-            figure.set_dpi(100)
-            figure.set_size_inches(0.01*width, 0.01*height)
-            figure.canvas.draw()
-            fig_img = np.array(figure.canvas.buffer_rgba())
-            fig_img = cv2.cvtColor(fig_img, cv2.COLOR_RGBA2BGR)
-            plt.clf()
-
-            if include_raw_frames:
-                # draw landmarked frame
-                frame = resize_img(frames[i], scaled_frame_shape[0], scaled_frame_shape[1]) # resize frame
-                out_frame = np.hstack((frame, fig_img))
-                out.write(out_frame)
-            else:
-                out.write(fig_img)
-        out.release()
-
-    def gen_vis_video(self, annotated_frames, seq_num, dynamic_features, proc_signals, concat_processed_signal, output_path):
-        height = 1000
-        width = 1000
-        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'MP4V'), 30, (width * 4, height*2))
-  
-        max_sig_val = 0
-        min_sig_val = 10000
-        signals = [[] for i in range(len(config.target_features))]
-        # make raw dynamic features list into a list of signals, one for each
-        for frame_feats in dynamic_features:
-            for i in range(len(config.target_features)):
-                signals[i].append(frame_feats[i])
-                if frame_feats[i] > max_sig_val:
-                    max_sig_val = frame_feats[i]
-                if frame_feats[i] < min_sig_val:
-                    min_sig_val = frame_feats[i]
-        
-        for i in range(len(annotated_frames)):
-            # print("annotating ", i)
-            frame = annotated_frames[i]
-            frame = resize_img(frame, width*2, height*2)
-
-            for f, s in enumerate(signals):
-                plt.plot(s[:i + 1], label = config.target_features[f])
-            
-            plt.xlim(0, len(annotated_frames))
-            #plt.ylim(min(concat_processed_signal), max(concat_processed_signal))
-            plt.ylim((min_sig_val, max_sig_val))
-            figure = plt.gcf()
-            plt.title(f"Seq {seq_num} Feature Signals (Raw)")
-            plt.legend(loc='upper right')
-            figure.set_dpi(100)
-            figure.set_size_inches(0.01*width*2, 0.01*height)
-            figure.canvas.draw()
-            fig_img = np.array(figure.canvas.buffer_rgba())
-            fig_img = cv2.cvtColor(fig_img, cv2.COLOR_RGBA2BGR)
-            plt.clf()
-            fig_img = resize_img(fig_img, width*2, height*2)
-            out_vid_frame = np.hstack((frame, fig_img))
-            out.write(out_vid_frame)
-        
-        # conclude with a summary frame with the original, downsampled, and concatenated signals
-        for f, s in enumerate(proc_signals):
-            plt.plot(s, label = config.target_features[f])
-
-        plt.xlim(0, len(annotated_frames))
-        plt.ylim(min(concat_processed_signal), max(concat_processed_signal))
-        figure = plt.gcf()
-        plt.legend(loc='upper right')
-        plt.title(f"Seq {seq_num} Feature Signals (Processed)")
-        figure.set_dpi(100)
-        figure.set_size_inches(0.01*width*2, 0.01*height)
-        figure.canvas.draw()
-        top_fig_img = np.array(figure.canvas.buffer_rgba())
-        top_fig_img = cv2.cvtColor(top_fig_img, cv2.COLOR_RGBA2BGR)
-        plt.clf()
-
-        empty = np.zeros((height, width*2, 3)).astype(np.uint8)
-        top_row = np.hstack((empty, top_fig_img))
-
-        # get resampled from concatenated signal
-        feat_count = 0
-        for f in range(0, len(concat_processed_signal), config.single_dynamic_signal_len):
-            plt.plot(concat_processed_signal[f:f+config.single_dynamic_signal_len], label = f"{config.target_features[feat_count]}")
-            feat_count += 1
-        figure = plt.gcf()
-        plt.legend(loc='upper right')
-        plt.title(f"Seq {seq_num} Resampled Feature Signals ({config.target_samples_per_second} sps)")
-        figure.set_dpi(100)
-        figure.set_size_inches(0.01*width*2, 0.01*height)
-        figure.canvas.draw()
-        bottom_fig_img = np.array(figure.canvas.buffer_rgba())
-        bottom_fig_img = cv2.cvtColor(bottom_fig_img, cv2.COLOR_RGBA2BGR)
-        plt.clf()
-
-        plt.plot(concat_processed_signal)
-        plt.vlines([f for f in range(0, len(concat_processed_signal), config.single_dynamic_signal_len)], min(concat_processed_signal), max(concat_processed_signal), linestyles='dashdot', colors='r', label="Individual feature starts")
-        plt.legend(loc = 'upper right')
-        plt.title(f"Seq {seq_num} Concatenated Resampled Feature Signals")
-        figure = plt.gcf()
-        figure.set_dpi(100)
-        figure.set_size_inches(0.01*width*2, 0.01*height)
-        figure.canvas.draw()
-        concat_fig_img = np.array(figure.canvas.buffer_rgba())
-        concat_fig_img = cv2.cvtColor(concat_fig_img, cv2.COLOR_RGBA2BGR)
-        plt.clf()
-
-        bottom_row = np.hstack((concat_fig_img, bottom_fig_img))
-
-        final = np.vstack((top_row, bottom_row))
-        
-        for q in range(90):
-            out.write(final)
-
-        out.release()
-    
-# # USAGE
-# vd = VideoDigestExtractor("video.mp4")
-# _, _, dynamic_vec = vd.extract_from_video_slice(0, 100, 1, resample_signal=False, skip_hash=True)

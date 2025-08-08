@@ -30,10 +30,7 @@ def get_dynamic_hash_dist(video_path, win_start_frame, input_digest, dynamic_fea
     scan_start = win_start_frame - epsilon
     scan_end = win_start_frame + epsilon
     min_dyn_feat_dist = config.dynamic_hash_k
-    final_raw_signals = None
-    final_proc_signals = None
-    final_concat_processed_signal = None
-    opt_start_frame = 0
+    opt_dynamic_hash = None
     for i in range(scan_start, int(scan_end+1)):
         if int(i + config.video_window_duration*fps+1) >= len(dynamic_features):
             break
@@ -41,13 +38,10 @@ def get_dynamic_hash_dist(video_path, win_start_frame, input_digest, dynamic_fea
         curr_dynamic_hash, curr_raw_signals, curr_proc_signals, curr_concat_processed_signal  = create_dynamic_hash_from_dynamic_features(curr_dynamic_features, dynamic_fam, dynamic_hash_funcs)
         curr_dynamic_hash_dist =  hamming(input_digest, curr_dynamic_hash)
         if curr_dynamic_hash_dist < min_dyn_feat_dist:
-            opt_start_frame = i
             min_dyn_feat_dist = curr_dynamic_hash_dist
-            final_raw_signals = curr_raw_signals
-            final_proc_signals = curr_proc_signals
-            final_concat_processed_signal = curr_concat_processed_signal
+            opt_dynamic_hash = curr_dynamic_hash
 
-    return min_dyn_feat_dist, opt_start_frame, final_raw_signals, final_proc_signals, final_concat_processed_signal
+    return min_dyn_feat_dist, opt_dynamic_hash
 
 
 

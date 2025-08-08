@@ -146,7 +146,6 @@ def run_extraction(dump_feats = False):
                     start_id = time.time()
                     identity_features = id_extractor.extract(frame)
                     end_id = time.time()
-                    print(Fore.BLUE + f"Seq {last_extracted_seq + 1} ID time: {end_id - start_id}." + Style.RESET_ALL)
                     if identity_features is not None:
                         id_extracted = True
                         print(Fore.BLUE + f"Got Seq {last_extracted_seq + 1} ID features." + Style.RESET_ALL)

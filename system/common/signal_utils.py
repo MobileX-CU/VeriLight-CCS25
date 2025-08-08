@@ -5,13 +5,19 @@ import numpy as np
 import config
 from sklearn.preprocessing import StandardScaler
 from scipy.interpolate import interp1d
+from sklearn.preprocessing import MinMaxScaler
 
-def single_feature_signal_processing(signal, resample_signal = True):
+def single_feature_signal_processing(signal, resample_signal = True, scaler = "standard"):
     try:
         proc_signal = interp_fill_nans(np.array(signal))     
     except Exception as e:
         return [0 for i in range(config.single_dynamic_signal_len)]
-    scaler = StandardScaler()
+    if scaler == "standard":
+        scaler = StandardScaler()
+    elif scaler == "minmax":
+        scaler = MinMaxScaler()
+    else:
+        raise ValueError("Unsupported scaler type. Use 'standard' for StandardScaler or 'minmax' for MinMaxScaler.")
     proc_signal = scaler.fit_transform(proc_signal.reshape(-1, 1)).reshape(-1) # important so that concat signal isn't just dominated by scale differences that inflate pearson score
     proc_signal = rolling_average(proc_signal, n = 2)
     if resample_signal:

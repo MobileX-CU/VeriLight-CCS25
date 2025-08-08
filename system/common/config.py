@@ -15,27 +15,40 @@ import os
 
 LOG_LEVEL  = "INFO"
 
-session_output_path  = "example" # path to folder to store output for this session. WILL BE OVERWRITTEN IF ALREADY EXISTS.
+session_output_path  = "example3" # path to folder to store output for this session. will be created if it doesn't exist
 
-common_abs_path = "/Users/hadleigh/deepfake_detection/system/e2e/common" # absolute path to the common folder
+common_abs_path = "/Users/hadleigh/deepfake_detection/system/e2e/common" # absolute path to the common folder on this machine
 
 host_ip = "raspberrypi.local"
 host_username = "hadleigh" # username on the host Pi
 
-embedding_window_duration = 4 #seconds
-N = 29 # edge length of cell (SLM pixels)
-buffer_space = 12 # num SLM pixels between cells
-
-
-init_min_tot_slm = 100 # initial value for minimum total SLM intensity (will be incremented/decremented through adaptation)
-init_slm_bgr =  [0, 255, 250] # color of the SLM cells before adaptation kicks in (first few sequences)
-
-min_tot_slm_inc = 5
-min_tot_slm_dec = 5 
-
 ###########################################################################################
 ############################    DO NOT EDIT BELOW THIS LINE    ############################
 ###########################################################################################
+
+#####################################
+#######   ADAPTIVE EMBEDDING  #######
+#####################################
+embedding_window_duration = 4 #seconds
+N = 29 # edge length of cell (SLM pixels)
+buffer_space = 12 # num SLM pixels between cells
+init_min_tot_slm = 120 # initial value for minimum total SLM intensity (will be incremented/decremented through adaptation)
+init_slm_bgr =  [0, 255, 250] # color of the SLM cells before adaptation kicks in (first few sequences)
+min_tot_slm_inc = 5 # increment for minimum total SLM intensity
+min_tot_slm_dec = 5 # decrement for minimum total SLM intensity (applied when perceptibility is too high but BER is still low)
+fade = False
+scale_factor_disp = 1.6 #1.8 (for paper experiments)
+calibration_frequency = 6
+calibration_repeat = 30
+frequency = 3
+repeat = 1 
+localization_frequency = 6
+if localization_frequency % frequency != 0:
+    print("WARNING: Localization frequency not divisible by comms frequency. Must change")
+    sys.exit()
+
+
+
 
 ###################################
 #######   MISCELLANEOUS   ########
@@ -78,19 +91,6 @@ else:
     with open(f"{common_abs_path}/unit_id.txt", "r") as file:
         unit_id = int(file.read())
 
-###################################
-#######   SLM PROJECTION   ########
-###################################
-fade = False
-scale_factor_disp = 1.6 #1.8 (for paper experiments)
-calibration_frequency = 6
-calibration_repeat = 30
-frequency = 3
-repeat = 1 
-localization_frequency = 6
-if localization_frequency % frequency != 0:
-    print("WARNING: Localization frequency not divisible by comms frequency. Must change")
-    sys.exit()
 
 #################################
 ######   HEATMAP SETTINGS   #####
